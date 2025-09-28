@@ -179,7 +179,8 @@ The system automatically detects whether to use local or cloud ChromaDB based on
 In order to run local unit tests you have a make action already defined.  Just run:
 
 ```bash
-tests
+# Run unit tests
+make tests
 ```
 
 ### CI/CD Pipeline using Github Actions
