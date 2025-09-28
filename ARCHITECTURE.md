@@ -26,7 +26,10 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
 - **Individual SQL Tools**: 10 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
 All necessary SQL operations are accessible through predefined SQL statements exposed as individual tools.
 
-This approach prioritizes safety over flexibility. When new queries are required, they must be defined as new tools.
+This approach prioritizes safety over flexibility. In case we see new data needs we need to review the available queries and provide new tools if necessary.
+
+Here is the list of predefined queries and their use:
+
   - `get_sales_by_model`: Model-specific sales data with country/year filters
   - `get_sales_by_country`: Country-specific sales analysis
   - `get_sales_by_region`: Regional sales comparison and analysis
@@ -47,17 +50,9 @@ This approach prioritizes safety over flexibility. When new queries are required
 
 ## Data Flow Architecture
 
+Overview of how data flows through the agent to answer questions.
+
 ![Data Flow Architecture](media/rag-architecture-data-diagram.png)
-
-## Secure SQL Architecture
-
-The secure SQL implementation follows a multi-layer security approach:
-
-### **Security Components:**
-- **Individual SQL Tools**: 10 specific tools with direct parameter mapping
-- **SimpleSQLExecutor**: Lightweight parameterized query execution
-- **Query Templates**: Predefined SQL queries with parameter placeholders
-- **QueryParameters**: Type-safe parameter validation and sanitization
 
 ## Architecture Trade-offs Analysis
 
@@ -68,14 +63,7 @@ The secure SQL implementation follows a multi-layer security approach:
 - **Streaming**: Real-time token streaming to UI
 - **Quality vs Speed Trade-off**: The current system implementation is more focused on quality of the answer and safety than speed
 
-**Trade-offs:**
-| **Advantages** | **Disadvantages**
-|-------------------|----------------------|
-| Streaming responses provide immediate feedback | Multi-step agent flow adds latency |
-| ChromaDB provides fast vector search | OpenAI API calls add network latency |
-| SQLite offers instant local queries | Document retrieval can be slow for large PDFs |
-
-**Key Performance Metric:**
+**Targets and Key Performance Metric:**
 - **First-Token-Latency**: ~1 second to start streaming response
 - **Total Response Time**: ~1.5-4.5s per interaction
 - **Design Philosophy**: *"First make it run, make it better and make it faster"*
@@ -84,7 +72,7 @@ The secure SQL implementation follows a multi-layer security approach:
 - Safety check: ~100-200ms
 - Query classification: ~300-500ms
 - Tool execution: ~100-400ms
-- Response generation: ~1-3s (streaming)
+- Response generation: ~1-5s (streaming depending on the size of the answer)
 
 ### **Cost**
 
@@ -94,16 +82,18 @@ The secure SQL implementation follows a multi-layer security approach:
 Per 1000 User Interactions (estimated):
 
 OpenAI API Costs:
-├── GPT-4o-mini (Router): ~$0.15-0.30
-├── GPT-4o-mini (Main): ~$1.50-3.00
+├── GPT-4.1-mini (Router): ~$0.15-0.30
+├── GPT-4.1-mini (Main): ~$1.50-3.00
 ├── Embeddings: ~$0.10-0.20
 ├── Moderation: ~$0.02
-└── Total OpenAI: ~$1.77-3.52 (reduced by removing SQL intent parsing)
+└── Total OpenAI: ~$1.77-3.52
 
 Infrastructure:
-├── Compute (Render/Cloud): ~$7-25/month
-├── Storage (ChromaDB): ~$0-10/month
+├── Compute [Render](https://render.com/): ~$7-25/month
+├── Storage [ChromaDB](https://www.trychroma.com/): ~$0-10/month
 └── Total Infrastructure: ~$7-35/month
+
+The goal was to focus on DX for quick and easy CI/CD instead of cost. 
 ```
 
 ### **Security**
@@ -113,8 +103,8 @@ Infrastructure:
 |-----------|---------------------------|------------------------|
 | **Input Filtering** | OpenAI Moderation API | Harmful content |
 | **Query Routing** | LLM-based topic classification | Off-topic queries, conversation hijacking |
-| **Parameter Validation** | Type-safe parameter checking | Invalid parameters, data corruption |
 | **Query Templates** | Parameterized query whitelisting | Unauthorized database access |
+| **Parameter Validation** | Type-safe parameter checking | Invalid parameters, data corruption |
 | **Database Access** | Read-only SQLite connections | Data modification |
 
 ### **Security Architecture Breakdown**
@@ -129,17 +119,13 @@ Infrastructure:
 - **Off-topic Protection**: Prevents conversation hijacking and prompt injection
 - **Route-specific Security**: Different security measures per query type
 
-#### **Layer 3: Simplified SQL Security (3-Stage Pipeline)**
-1. **Direct Tool Selection**: LLM chooses appropriate SQL tool based on the input
+#### **Layer 3: SQL Security**
+1. **Predefined SQL queries as Tools**: SQL is not exposed to the LLM, the LLM only knows the tool functions.
 3. **Template Execution**: Parameterized queries with predefined templates only
 
 #### **Layer 4: Database Security**
 - **Read-only Access**: Read mode prevents data modification
 
-#### **Layer 5: Runtime Security**
-- **Thread Pool Isolation**: Non-blocking async execution
-- **Resource Limits**: Memory and timeout constraints
-- **Comprehensive Logging**: Security events, attack attempts, performance metrics
 
 **Security Trade-offs:**
 - **Input Guardrails**: OpenAI Moderation API filters all incoming messages before processing. It is a simple solution given the time constraints.
@@ -150,20 +136,18 @@ Infrastructure:
 - **Current**: By default Chainlit serves the files under the public directory as static files. Good for a prototype but not for production environment.
 - **Recommendation**: Ideally this would be served with something like blob storage or S3 bucket with proper access control and permissions.
 
-
 ## Evaluation & Testing
 
 ### **LangSmith Integration**
 - **Dataset Management**: Ground truth datasets with 15 test questions covering SQL-only, document-only, and mixed scenarios
-- **Evaluation Metrics**: Tool selection accuracy, response quality, execution time performance
-- **Test Coverage**: 100% perfect tool matches in ground truth dataset with real SQL responses
 - **Categories Tested**:
   - SQL-only (5 questions): Model sales, top performers, regional analysis, trends, rankings
   - Document-only (5 questions): Warranty info, maintenance procedures, safety features, repair guides
   - Mixed (5 questions): Combined SQL + document responses
-- **Integration Scripts**:
-  - `upload_to_langsmith.py`: Dataset registration and management
-  - `run_langsmith_evaluation.py`: Automated evaluation pipeline
+- **Evaluation Metrics**: Tool selection accuracy is evaluated. It is prepared to evaluate response quality as well, but not released yet due to time constraints and lack of appropriate ground-truth.
+- **Test Coverage**: 100% perfect tool matches in ground truth dataset with real SQL responses
+
+- **See details** at [Evals](EVALS.md).
 
 ## Other considerations
 
