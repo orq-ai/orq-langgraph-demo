@@ -6,6 +6,8 @@ The evaluation pipeline consists of:
 - **Evaluation Execution**: Run the assistant against test cases and measure performance
 - **Metrics**: We focus on tool selection accuracy
 
+![Evaluating Tool Calling](media/tool-calling-evals.png)
+
 ## Quick Start
 
 ```bash
