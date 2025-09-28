@@ -6,10 +6,10 @@ A RAG assistant that combines vehicle sales data and documents to answer automot
 
 This assistant can:
 
-- **Context-Aware Responses**: Handles Toyota-specific questions only
-- **Query Sales Data**: Answers questions about vehicle sales using SQL database
-- **Search Documents**: Finds relevant information in manuals, contracts, and warranty documents
-- **Tool Orchestration**: Answers complex questions by combining different tools
+- **Context-Aware Responses**: Handles only Toyota-specific questions. Refuses unrelated questions.
+- **Query Sales Data**: Answers questions about vehicle sales using SQL database.
+- **Search Documents**: Applied semantic search to find relevant information in manuals, contracts, and warranty documents.
+- **Tool Orchestration**: Answers complex questions by combining multiple tool callings.
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
@@ -47,8 +47,12 @@ Demo showing the agent using SQL capabilities to query the structured database.
 
 ### Prerequisites
 
+ 
+
 - **Option A (Docker)**: Docker and Docker Compose
-- **Option B (Local)**: Python 3.11+ and OpenAI API key
+- **Option B (Local)**: Python 3.11+
+
+OpenAI API key is mandatory.
 
 ### Option A: Docker Deployment (Recommended)
 
@@ -66,10 +70,10 @@ docker-compose up --build
 3. **Or run with Docker directly**
 ```bash
 # Build the image
-docker build -f Dockerfile -t toyota-rag-assistant .
+docker build -f Dockerfile -t toyota-assistant .
 
 # Run with environment file
-docker run -p 8000:8000 --env-file .env toyota-rag-assistant
+docker run -p 8000:8000 --env-file .env toyota-assistant
 ```
 
 ### Option B: Local Development
@@ -127,9 +131,9 @@ OPENAI_API_KEY=your-api-key
 src/
 ├── assistant/                                  # Core agent
 │   ├── graph.py                                # LangGraph workflow
-│   ├── tools.py                                # SQL and document search tools
+│   ├── tools.py                                # document search tools
+│   ├── sql_tools.py                            # SQL search tools. It only supports predefined queries for safety reasons.
 │   ├── state.py                                # Agent state management
-│   ├── context.py                              # Configuration
 │   ├── prompts.py                              # System prompts
 │   └── guardrails.py                           # Safety features
 └── chainlit_app.py                             # Web interface
@@ -141,7 +145,7 @@ data/                                           # Sample CSV data
 docs/                                           # Sample PDF documents
 ```
 
-## Try these questions
+## You can try these questions
 
 **Using structured sales data:**
 - "What were the RAV4 sales in Germany in 2024?"
@@ -168,7 +172,7 @@ make setup-embeddings-db
 
 ### ChromaDB Cloud (Optional)
 
-To use ChromaDB Cloud instead of local storage:
+To use ChromaDB Cloud instead of local storage you need to specify your Chroma API keys:
 
 1. **Set up ChromaDB Cloud credentials** in your `.env` file:
    ```bash
@@ -177,7 +181,7 @@ To use ChromaDB Cloud instead of local storage:
    CHROMA_DATABASE_NAME=your-database-name
    ```
 
-2. **Run ingestion** (same command, will auto-detect cloud config):
+2. **Run ingestion** (same command, will detect cloud config if available):
 
 ```bash
 make setup-embeddings-db
@@ -205,17 +209,12 @@ make dev  # Opens LangGraph Studio
 
 **Database issues:**
 ```bash
-make setup-db  # Recreate databases
+make setup-db  # Create databases (sqlite and chromadb)
 ```
-
 ---
 
-**Built with**: Docker, OpenAI, LangGraph, ChromaDB, Chainlit
 
-
-## Next Steps
-
-- **Automated Evaluation**: Build evaluation pipeline for response quality and accuracy
+## Improvements and Next Steps
 - **Contextual Retrieval**: Better document chunking with improved summaries
 - **Reranking**: Semantic reranking to improve document retrieval relevance
 - **User Feedback**: Collect user feedback in the UI (thumbs up/down)
