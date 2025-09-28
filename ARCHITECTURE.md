@@ -98,6 +98,8 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 
 ### **Security**
 
+### **Security Architecture Decisions and its layers**
+
 **Security Measures:**
 |  **Layer** |  **Implementation Status** |  **Protection Against** |
 |-----------|---------------------------|------------------------|
@@ -106,8 +108,6 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 | **Query Templates** | Parameterized query whitelisting | Unauthorized database access |
 | **Parameter Validation** | Type-safe parameter checking | Invalid parameters, data corruption |
 | **Database Access** | Read-only SQLite connections | Data modification |
-
-### **Security Architecture Breakdown**
 
 #### **Layer 1: Input Validation & Content Filtering**
 - **OpenAI Moderation API**: First line of defense against harmful content
