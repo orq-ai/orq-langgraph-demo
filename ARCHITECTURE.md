@@ -136,7 +136,7 @@ Infrastructure:
 #### **Layer 4: Database Security**
 - **Read-only Access**: Read mode prevents data modification
 
-#### **⚡ Layer 5: Runtime Security**
+#### **Layer 5: Runtime Security**
 - **Thread Pool Isolation**: Non-blocking async execution
 - **Resource Limits**: Memory and timeout constraints
 - **Comprehensive Logging**: Security events, attack attempts, performance metrics
@@ -165,45 +165,25 @@ Infrastructure:
   - `upload_to_langsmith.py`: Dataset registration and management
   - `run_langsmith_evaluation.py`: Automated evaluation pipeline
 
-### **Ground Truth Generation**
-- **Real SQL Responses**: Authentic database queries with actual Toyota/Lexus sales data
-- **Realistic Document Responses**: Based on actual Toyota documentation and manuals
-- **Tool Selection Validation**: Ensures correct tool mapping for different question types
-- **Performance Benchmarks**: Execution time and accuracy metrics for regression testing
+## Other considerations
 
-## Production Readiness
-
-### **Improvements needed for Enterprise deployment**
-- **Authentication & Authorization**: No user management
-- **Rate Limiting**: No API rate limit implemented
-- **Monitoring**: Limited observability beyond logs. Integrate with tools like Sentry, Kibana, Logfire or DataDog.
-- **Scalability**: Single-instance architecture
-- **Security**: ~~More tests needed to measure robustness against Prompt Injection and SQL Injection.~~ **UPDATED: Simplified SQL tools eliminate injection vectors. Focus now on prompt injection and additional attack vectors.**
-
-
-### 2. **Cost Optimization**
+### Cost Optimization
 - Implement response caching for common queries
-- Use smaller models for classification tasks. We are using GPT-4o-mini, but we could test with even smaller models for specific classification tasks.
+- Use smaller models for classification tasks. We are using GPT-4.1-mini, but we could test with even smaller models for specific classification tasks.
 - **Model Routing Strategy**: Consider using [Cast.ai](https://cast.ai/) - a proxy tool that routes to the cheapest model available without compromising quality
 - **Batch Processing**: Consider using OpenAI Batch API for even lower costs during document ingestion
 - Better concurrency management for document ingestion pipeline
 
-### 3. **More Security**
+### More Security
 - Add authentication
 - Implement rate limiting per user or IP
 
-### 4. **Enterprise Features**
-- Multi-tenant architecture
-- Role-based access control
-- Advanced monitoring and alerting
-- Automated backup strategies
-
-### 5. **Billing Strategy**
+### Billing Strategy
 - **Usage-Based Billing**: Consider using [Lago](https://www.getlago.com/) - a usage-based billing and metering cloud solution
 - **Flexible Pricing Models**: Setup billing by message, tokens, packages, etc.
 - **Focus Benefits**: This way we can focus on the system and the billing experimentation until we find the billing model we are happy with
 
-### 6. **Document Relevancy and Performance**
+### Document Relevancy and Performance
 - **Current Approach**: Due to latency and for the sake of simplicity we are showing them [all retrieved documents] here to demonstrate the feature
 - **Production Enhancement**: Ideally we would have a relevancy assessment or reranker and filter out those documents that are not relevant
 - **Trade-off**: Showing all retrieved documents vs. implementing reranking (adds latency but improves precision)
@@ -211,4 +191,5 @@ Infrastructure:
 ----
 
 **Quality versus Latency Trade-off**:
+
 The current system implementation is more focused on quality of the answer and safety than speed. I consider that the KPI First-Token-Latency is around 1s, meaing it takes 1 second to start streaming the answer to the user. The trade-off is good ideal for customer iterations and improvements based on actual real usage. Following the principle: First make it run, make it better and make it faster.
