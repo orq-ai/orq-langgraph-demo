@@ -25,7 +25,7 @@ COPY uv.lock .
 RUN uv sync --frozen
 
 # Copy source code
-COPY .chainlit/ ./
+COPY .chainlit/ .chainlit/
 COPY src/ ./src/
 COPY data/ ./data/
 COPY docs/ ./docs/
