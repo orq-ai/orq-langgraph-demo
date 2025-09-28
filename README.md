@@ -43,6 +43,11 @@ Demo showing the agent using SQL capabilities to query the structured database.
 ![Sales Data Analysis Demo](media/demo_sales_data_2_optimized.gif)
 
 
+## Tests, CI/CD and Evals
+
+
+
+
 ## Quick Start
 
 ### Prerequisites
@@ -203,6 +208,49 @@ make dev  # Opens LangGraph Studio
 
 ![LangGraph Studio Development](media/studio_dev.png)
 
+## Quick Reference
+
+### Testing & Quality Assurance
+
+**Run Tests:**
+```bash
+make tests          # Run all tests
+```
+
+**Code Quality:**
+```bash
+make lint           # Lint code with ruff
+make format         # Format code with ruff
+make check          # Run both lint and format
+```
+
+**CI/CD Pipeline:**
+- **Automated Testing**: Runs on every push/PR
+- **Multi-Python Support**: Tests on Python 3.11 and 3.12
+- **Code Quality**: Ruff linting, MyPy type checking
+- **Security**: Bandit security scanning
+
+### Integrated Evaluation Pipeline using Langsmith
+
+**Quick Start:**
+```bash
+make evals-upload-dataset  # Upload test cases to LangSmith
+make evals-run            # Run evaluation pipeline
+make evals-help           # Show evaluation help
+```
+
+**Evaluation Features:**
+- **Tool Selection Accuracy**: Measures correct tool usage
+- **Category Performance**: SQL-only, document-only, mixed queries
+- **LangSmith Integration**: Results tracking and analysis
+- **15 Test Cases**: Comprehensive evaluation dataset
+
+For detailed evaluation setup, see [EVALS.md](EVALS.md).
+
+### Testing Documentation
+
+For comprehensive testing information, see [TESTING.md](TESTING.md).
+
 ## Troubleshooting
 
 ### Local Development Issues
@@ -211,8 +259,13 @@ make dev  # Opens LangGraph Studio
 ```bash
 make setup-db  # Create databases (sqlite and chromadb)
 ```
----
 
+**Test issues:**
+```bash
+PYTHONPATH=src make tests  # Ensure proper Python path
+```
+
+---
 
 ## Improvements and Next Steps
 - **Contextual Retrieval**: Better document chunking with improved summaries

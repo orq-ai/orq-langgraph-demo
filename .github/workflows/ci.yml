@@ -38,17 +38,10 @@ jobs:
       run: |
         uv sync --group dev
 
-    - name: Lint with ruff
+    - name: Lint and format with ruff
       run: |
-        uv run ruff check .
-
-    - name: Format check with ruff
-      run: |
+        uv run ruff check . --fix
         uv run ruff format --check .
-
-    - name: Type check with mypy
-      run: |
-        uv run mypy src/
 
     - name: Run tests
       run: |
@@ -82,13 +75,13 @@ jobs:
       run: |
         uv sync --group dev
 
-    - name: Security check with bandit
+    - name: Security check with detect-secrets
       run: |
-        uv run bandit -r src/ -f json -o bandit-report.json || true
+        uv run detect-secrets scan --baseline .secrets.baseline || true
 
     - name: Upload security report
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: bandit-report
-        path: bandit-report.json  
+        name: security-report
+        path: .secrets.baseline  

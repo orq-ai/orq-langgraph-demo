@@ -25,9 +25,6 @@ format: ## Format code
 check: lint format ## Run all code quality checks
 
 # Testing
-test: ## Run tests
-	uv run pytest tests/ -v
-
 tests: ## Run tests with proper PYTHONPATH
 	PYTHONPATH=src uv run pytest tests/ -v
 
