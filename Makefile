@@ -1,6 +1,6 @@
 # Basic Reference RAG Implementation - Simple Makefile
 
-.PHONY: help install lint format test clean run setup eval-dataset eval-run eval-run-custom eval-list eval-help eval-full eval-custom
+.PHONY: help install lint format check tests clean run dev setup setup-structured-db setup-embeddings-db setup-db evals-upload-dataset
 
 help: ## Show this help message
 	@echo "Available commands:"
