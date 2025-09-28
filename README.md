@@ -1,6 +1,7 @@
 # Toyota/Lexus RAG Assistant
 
-A RAG assistant that combines vehicle sales data and documents to answer automotive questions. Built with LangGraph, ChromaDB, and SQLite. LangSmith integration and ready for deployment with Docker.
+A RAG assistant that combines vehicle sales data and documents to answer automotive questions. Built with LangGraph, ChromaDB, and SQLite. Ready for deployment with Docker. 
+It also counts with [Evals](EVALS.md) with a detailed Evaluation Pipeline focused on testing tool calling using LangSmith.
 
 ## What it does
 
@@ -9,13 +10,13 @@ This assistant can:
 - **Context-Aware Responses**: Handles only Toyota-specific questions. Refuses unrelated questions.
 - **Query Sales Data**: Answers questions about vehicle sales using SQL database.
 - **Search Documents**: Applied semantic search to find relevant information in manuals, contracts, and warranty documents.
-- **Tool Orchestration**: Answers complex questions by combining multiple tool callings.
+- **Tool Orchestration**: Answers complex questions by combining sql and semantic questions using Agentic tool callings.
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
 ## How it works
 
-The assistant uses a multi-step LangGraph workflow with intelligent routing:
+The assistant uses a multi-step LangGraph workflow with routing:
 
 1. **Safety Check**: OpenAI Moderation API filters harmful content
 2. **Query Analysis**: LLM classifies the question type and intent
@@ -25,8 +26,9 @@ The assistant uses a multi-step LangGraph workflow with intelligent routing:
    - **Off-topic**: Politely redirects to Toyota/Lexus topics
 4. **Agentic Tool Loop**: For Toyota questions, iterates between model and tools until complete
 
-![Agent Architecture](media/agent_architecture.png)
+See bellow the agent architecture.
 
+![Agent Architecture](media/agent_architecture.png)
 
 ## Demo
 
@@ -43,16 +45,10 @@ Demo showing the agent using SQL capabilities to query the structured database.
 ![Sales Data Analysis Demo](media/demo_sales_data_2_optimized.gif)
 
 
-## Tests, CI/CD and Evals
-
-
-
 
 ## Quick Start
 
 ### Prerequisites
-
- 
 
 - **Option A (Docker)**: Docker and Docker Compose
 - **Option B (Local)**: Python 3.11+
@@ -81,6 +77,8 @@ docker build -f Dockerfile -t toyota-assistant .
 docker run -p 8000:8000 --env-file .env toyota-assistant
 ```
 
+Visit `http://localhost:8000` to chat with the assistant.
+
 ### Option B: Local Development
 
 1. **Install dependencies**
@@ -95,23 +93,30 @@ export OPENAI_API_KEY="your-openai-api-key-here"
 
 3. **Setup databases**
 ```bash
+# This method will create the SQLite with the structured sales data and also ingest the pdfs to a ChromaDB
 make setup-db
 ```
 
 4. **Run the app**
 ```bash
-# Web interface
+# Web interface. Runs chainglit UI locally
 make run
-
-# Development mode. This will open LangGraph Studio
-make dev
 ```
-
-### Access the Application
-
 Visit `http://localhost:8000` to chat with the assistant.
 
 ![Toyota RAG Assistant UI](media/run_ui.png)
+
+
+# Using LangGraph Studio
+
+```bash
+# Opens LangGraph Studio UI running our Agent
+make dev
+```
+
+LangGraph Studio should automatically open in your browser.
+
+![LangGraph Studio Development](media/studio_dev.png)
 
 ## What's included
 
@@ -194,43 +199,15 @@ make setup-embeddings-db
 
 The system automatically detects whether to use local or cloud ChromaDB based on the presence of `CHROMA_API_KEY`.
 
-## Development
-
-### Local Development
-
-```bash
-# Code quality
-make lint format
-
-# Debug mode
-make dev  # Opens LangGraph Studio
-```
-
-![LangGraph Studio Development](media/studio_dev.png)
-
-## Quick Reference
-
-### Testing & Quality Assurance
-
-**Run Tests:**
-```bash
-make tests          # Run all tests
-```
-
-**Code Quality:**
-```bash
-make lint           # Lint code with ruff
-make format         # Format code with ruff
-make check          # Run both lint and format
-```
+## Development Setup
 
 **CI/CD Pipeline:**
 - **Automated Testing**: Runs on every push/PR
 - **Multi-Python Support**: Tests on Python 3.11 and 3.12
-- **Code Quality**: Ruff linting, MyPy type checking
+- **Code Quality**: Ruff linting
 - **Security**: Bandit security scanning
 
-### Integrated Evaluation Pipeline using Langsmith
+### Evals: Integrated Evaluation Pipeline using Langsmith
 
 **Quick Start:**
 ```bash
@@ -243,13 +220,10 @@ make evals-help           # Show evaluation help
 - **Tool Selection Accuracy**: Measures correct tool usage
 - **Category Performance**: SQL-only, document-only, mixed queries
 - **LangSmith Integration**: Results tracking and analysis
-- **15 Test Cases**: Comprehensive evaluation dataset
+- **15 Test Cases**: Comprehensive evaluation dataset (5 expecting SQL queries, 5 expecting semantic search, and 5 mixed queries using both)
 
 For detailed evaluation setup, see [EVALS.md](EVALS.md).
 
-### Testing Documentation
-
-For comprehensive testing information, see [TESTING.md](TESTING.md).
 
 ## Troubleshooting
 
@@ -259,12 +233,6 @@ For comprehensive testing information, see [TESTING.md](TESTING.md).
 ```bash
 make setup-db  # Create databases (sqlite and chromadb)
 ```
-
-**Test issues:**
-```bash
-PYTHONPATH=src make tests  # Ensure proper Python path
-```
-
 ---
 
 ## Improvements and Next Steps
