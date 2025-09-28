@@ -14,6 +14,13 @@ This assistant can:
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
+## What's included in the knowledge base
+
+### Sample Data
+- **Sales Data** (Accessible via SQLite): Vehicle sales by model, country, and date
+- **Documents** (Accessible via ChromaDB): Toyota manuals, contracts, and warranty policies
+
+
 ### You can try these questions
 
 **Using structured sales data:**
@@ -35,7 +42,7 @@ The assistant uses a multi-step LangGraph workflow with routing:
 1. **Safety Check**: OpenAI Moderation API filters harmful content
 2. **Query Analysis**: LLM classifies the question type and intent
 3. **Context-Aware Routing**: Routes to appropriate response path:
-   - **Toyota-specific**: Uses tools (SQL/documents) to answer
+   - **Toyota-specific**: If it detected that question is related to Toyota it uses tools (predefined SQL queries and semantic search) to answer the question
    - **Needs clarification**: Asks for more specific information
    - **Off-topic**: Politely redirects to Toyota/Lexus topics
 4. **Agentic Tool Loop**: For Toyota questions, iterates between model and tools until complete
@@ -111,7 +118,7 @@ export OPENAI_API_KEY="your-openai-api-key-here"
 make setup-db
 ```
 
-4. **Run the app**
+4. **Run the UI**
 ```bash
 # Web interface. Runs chainglit UI locally
 make run
@@ -121,7 +128,7 @@ Visit `http://localhost:8000` to chat with the assistant.
 ![Toyota RAG Assistant UI](media/run_ui.png)
 
 
-# Using LangGraph Studio
+5. **Run the agent using LangGraph Studio**
 
 ```bash
 # Opens LangGraph Studio UI running our Agent
@@ -131,43 +138,6 @@ make dev
 LangGraph Studio should automatically open in your browser.
 
 ![LangGraph Studio Development](media/studio_dev.png)
-
-## What's included
-
-### Sample Data
-- **Sales Data** (SQLite): Vehicle sales by model, country, and date
-- **Documents** (ChromaDB): Toyota manuals, contracts, and warranty policies
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```bash
-# Required
-OPENAI_API_KEY=your-api-key
-```
-
-## Project Structure
-
-```
-src/
-├── assistant/                                  # Core agent
-│   ├── graph.py                                # LangGraph workflow
-│   ├── tools.py                                # document search tools
-│   ├── sql_tools.py                            # SQL search tools. It only supports predefined queries for safety reasons.
-│   ├── state.py                                # Agent state management
-│   ├── prompts.py                              # System prompts
-│   └── guardrails.py                           # Safety features
-└── chainlit_app.py                             # Web interface
-
-scripts/                                        # Database setup and ingestion scripts
-├── structured_data_ingestion_pipeline.py       # Ingest structured data into SQLite
-├── unstructured_data_ingestion_pipeline.py     # Ingest pdf documents into ChromaDB
-data/                                           # Sample CSV data
-docs/                                           # Sample PDF documents
-```
 
 
 ## Document Ingestion
@@ -201,9 +171,9 @@ make setup-embeddings-db
 
 The system automatically detects whether to use local or cloud ChromaDB based on the presence of `CHROMA_API_KEY`.
 
-## Development Setup
+## Tests, Continuous Integration and Evals
 
-**CI/CD Pipeline:**
+### CI/CD Pipeline using Github Actions
 - **Automated Testing**: Runs on every push/PR
 - **Multi-Python Support**: Tests on Python 3.11 and 3.12
 - **Code Quality**: Ruff linting
@@ -211,12 +181,7 @@ The system automatically detects whether to use local or cloud ChromaDB based on
 
 ### Evals: Integrated Evaluation Pipeline using Langsmith
 
-**Quick Start:**
-```bash
-make evals-upload-dataset  # Upload test cases to LangSmith
-make evals-run            # Run evaluation pipeline
-make evals-help           # Show evaluation help
-```
+Running full evaluation pipeline and testing realistic [sample questions](resources/converstation_starters.csv).
 
 **Evaluation Features:**
 - **Tool Selection Accuracy**: Measures correct tool usage
@@ -224,8 +189,9 @@ make evals-help           # Show evaluation help
 - **LangSmith Integration**: Results tracking and analysis
 - **15 Test Cases**: Comprehensive evaluation dataset (5 expecting SQL queries, 5 expecting semantic search, and 5 mixed queries using both)
 
-For detailed evaluation setup, see [EVALS.md](EVALS.md).
+For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).
 
+![Evaluating Tool Calling](media/tool-calling-evals.png)
 
 ## Troubleshooting
 
