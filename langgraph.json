@@ -4,7 +4,5 @@
     "graphs": {
         "agent": "./src/assistant/graph.py:graph"
     },
-    "env": "./.env",
-    "init": "./scripts/init_database.py",
-    "runtime": "inmem"
+    "env": "./.env"
 }
