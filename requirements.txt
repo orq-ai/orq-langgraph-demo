@@ -4,7 +4,6 @@
 
 # Vector Databases
 chromadb>=1.1.0
-lancedb>=0.25.0
 
 # UI & Web Framework
 chainlit>=2.0.0
