@@ -174,6 +174,14 @@ The system automatically detects whether to use local or cloud ChromaDB based on
 
 ## Tests, Continuous Integration and Evals
 
+### Running Unit tests
+
+In order to run local unit tests you have a make action already defined.  Just run:
+
+```bash
+tests
+```
+
 ### CI/CD Pipeline using Github Actions
 - **Automated Testing**: Runs on every push/PR
 - **Multi-Python Support**: Tests on Python 3.11 and 3.12
