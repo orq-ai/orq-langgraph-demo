@@ -28,6 +28,9 @@ check: lint format ## Run all code quality checks
 test: ## Run tests
 	uv run pytest tests/ -v
 
+tests: ## Run tests with proper PYTHONPATH
+	PYTHONPATH=src uv run pytest tests/ -v
+
 # Application
 run: ## Run the Chainlit web interface
 	uv run chainlit run src/chainlit_app.py
