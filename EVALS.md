@@ -177,3 +177,6 @@ Measures performance by question type category. These are the available categori
 - **Overall Tool Accuracy**: Percentage of correct tool selections
 - **Category Performance**: How well each query type performs
 - **Response Quality**: Content relevance and completeness. (Work in Progress) We need ground-truth answers and feedback to start computing response quality
+
+----
+Author: Arian Pasquali

@@ -1,6 +1,7 @@
 # Toyota/Lexus RAG Assistant
 
 The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. It also includes a comprehensive [Evaluation Pipeline](EVALS.md) focused on testing tool calling accuracy using LangSmith.
+More details about the architecture can be found [here](ARCHITECTURE.md).
 
 ## What it does
 
@@ -226,3 +227,6 @@ make setup-db  # Create databases (sqlite and chromadb)
 - **Reranking**: Semantic reranking to improve document retrieval relevance
 - **User Feedback**: Collect user feedback in the UI (thumbs up/down)
 - **Query Suggestions**: Provide intelligent follow-up question recommendations
+
+----
+Author: Arian Pasquali

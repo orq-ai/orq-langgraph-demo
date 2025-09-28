@@ -192,3 +192,7 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 **Quality versus Latency Trade-off**:
 
 The current system implementation is more focused on quality of the answer and safety than speed. I consider that the KPI First-Token-Latency is around 1s, meaing it takes 1 second to start streaming the answer to the user. The trade-off is good ideal for customer iterations and improvements based on actual real usage. Following the principle: First make it run, make it better and make it faster.
+
+
+----
+Author: Arian Pasquali
