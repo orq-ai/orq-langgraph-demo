@@ -184,7 +184,7 @@ class TestSQLTools:
         assert call_args[0][1].brand == "Toyota"
         assert call_args[0][1].limit == 12
         assert result == "Mock powertrain trends data"
-    
+
     def test_default_parameters(self):
         """Test that default parameters work correctly."""
         with patch("assistant.sql_tools.simple_sql_executor") as mock_executor:
