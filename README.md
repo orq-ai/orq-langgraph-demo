@@ -193,6 +193,11 @@ make tests
 
 Running full evaluation pipeline and testing realistic [sample questions](resources/converstation_starters.csv).
 
+```bash
+# Command to run evaluation pipeline. Make sure you setup correctly Langsmith (see EVALS.md)
+make evals-run
+```
+
 **Evaluation Features:**
 - **Tool Selection Accuracy**: Measures correct tool usage
 - **Category Performance**: SQL-only, document-only, mixed queries
