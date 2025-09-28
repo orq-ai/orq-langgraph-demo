@@ -1,0 +1,46 @@
+FROM python:3.12.3-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    vim \
+    make \
+    sqlite3 \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements.txt first for better Docker layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY src/ ./src/
+COPY data/ ./data/
+COPY docs/ ./docs/
+COPY scripts/ ./scripts/
+COPY resources/ ./resources/
+COPY public/ ./public/
+
+# Copy configuration files
+COPY .chainlit/ ./
+COPY chainlit.md ./
+COPY Makefile ./
+
+# Copy PDF files to public directory for web access
+RUN cp docs/*.pdf public/ 2>/dev/null || true
+
+# Expose Chainlit default port
+EXPOSE 8000
+
+# Set environment variable for Chainlit
+ENV CHAINLIT_HOST=0.0.0.0
+ENV CHAINLIT_PORT=8000
+
+# Initialize database (optional - will be done by init script if needed)
+# RUN python scripts/init_database.py || echo "Database initialization skipped"
+
+# Run the Chainlit application
+CMD ["python", "-m", "chainlit", "run", "src/chainlit_app.py", "--host", "0.0.0.0", "--port", "8000"]
