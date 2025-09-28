@@ -163,19 +163,6 @@ QUERY_TEMPLATES = {
         ORDER BY total_sales DESC
         LIMIT ?
     """,
-    "schema_info": """
-        SELECT
-            name as table_name,
-            type as object_type,
-            CASE
-                WHEN sql IS NOT NULL THEN 'Custom Table'
-                ELSE 'System Table'
-            END as description
-        FROM sqlite_master
-        WHERE type IN ('table', 'view')
-        AND name NOT LIKE 'sqlite_%'
-        ORDER BY name
-    """,
     "top_countries": """
         SELECT
             dc.country,
@@ -230,7 +217,6 @@ def build_query_params(query_type: str, params: QueryParameters) -> List[Any]:
         "top_performers": lambda: [year, limit],
         "powertrain_analysis": lambda: [year, limit],
         "model_comparison": lambda: [year, params.brand or "Toyota", limit],
-        "schema_info": lambda: [],
         "top_countries": lambda: [year, limit],
         "powertrain_trends": lambda: [
             year,

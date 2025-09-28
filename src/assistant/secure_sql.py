@@ -27,7 +27,6 @@ class QueryType(Enum):
     MODEL_COMPARISON = "model_comparison"
     POWERTRAIN_ANALYSIS = "powertrain_analysis"
     TOP_PERFORMERS = "top_performers"
-    SCHEMA_INFO = "schema_info"
 
 
 @dataclass
