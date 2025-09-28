@@ -10,7 +10,6 @@ try:
 except ImportError:
     # Python 3.9 compatibility
     UTC = timezone.utc
-import asyncio
 import logging
 from typing import Any, Dict, List, Literal, cast
 
@@ -22,8 +21,9 @@ from langgraph.runtime import Runtime
 
 from assistant.context import Context
 from assistant.guardrails import GuardrailsOutput, OpenAIModerator, SafetyAssessment
+from assistant.models import SearchResult
 from assistant.state import InputState, Router, State
-from assistant.tools import TOOLS, SearchResult
+from assistant.tools import TOOLS, search_documents, search_in_document
 from assistant.utils import convert_search_result_to_document, load_chat_model
 
 load_dotenv()
@@ -224,12 +224,6 @@ def route_query(
 
 async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
     """Call tools and track executed queries and retrieved documents."""
-    from assistant.tools import (
-        _sync_execute_sql,
-        _sync_get_schema,
-        search_documents,
-        search_in_document,
-    )
 
     # Track executed SQL queries and retrieved documents
     executed_queries = list(state.executed_sql_queries) if state.executed_sql_queries else []
@@ -293,32 +287,8 @@ async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
                 )
                 tool_messages.append(tool_message)
 
-            elif tool_name == "execute_sql":
-                query = tool_args.get("query", "")
-
-                # Use asyncio.to_thread to avoid blocking the event loop
-                tool_result = await asyncio.to_thread(_sync_execute_sql, query)
-
-                # Track the SQL query
-                if query and query not in executed_queries:
-                    executed_queries.append(query)
-                    logger.info(f"Tracked SQL query: {query[:100]}...")
-
-                # Create tool message with the result
-                tool_message = ToolMessage(
-                    content=str(tool_result), tool_call_id=tool_id, name=tool_name
-                )
-                tool_messages.append(tool_message)
-
-            elif tool_name == "get_sql_schema":
-                # Use asyncio.to_thread to avoid blocking the event loop
-                tool_result = await asyncio.to_thread(_sync_get_schema)
-
-                # Create tool message with the result
-                tool_message = ToolMessage(
-                    content=str(tool_result), tool_call_id=tool_id, name=tool_name
-                )
-                tool_messages.append(tool_message)
+            # Legacy SQL tools have been replaced with secure versions
+            # The secure SQL tools are handled by the standard ToolNode below
 
             else:
                 # For other tools, use standard execution

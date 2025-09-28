@@ -85,11 +85,11 @@ alert_style = "classic"
 
 
 # Specify optional one or more custom links in the header.
-# [[UI.header_links]]
-#     name = "Repository"
-#     display_name = "Repository"
-#     icon_url = "https://icons.getbootstrap.com/assets/icons/github.svg"
-#     url = "https://github.com/arianpasquali/basic-reference-rag-implementation"
+[[UI.header_links]]
+     name = "Repository"
+     display_name = "Repository"
+     icon_url = "https://icons.getbootstrap.com/assets/icons/github.svg"
+     url = "https://github.com/arianpasquali/basic-reference-rag-implementation"
 
 [meta]
 generated_by = "2.6.3"

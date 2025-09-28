@@ -1,0 +1,29 @@
+# Core LangChain & LangGraph
+langchain-core~=0.3.33
+langchain-community~=0.3.16
+langchain-chroma~=0.2.3
+langchain-openai~=0.3.0
+langchain-text-splitters~=0.3.0
+langgraph~=0.6.6
+
+# Vector Databases
+chromadb>=1.1.0
+lancedb>=0.25.0
+
+# UI & Web Framework
+chainlit>=2.6.3
+
+# Data Processing
+pandas~=2.2.3
+pypdf~=5.3.0
+
+# Configuration & Validation - CRITICAL FOR DEPLOYMENT
+pydantic~=2.10.1
+pydantic-settings~=2.6.1
+python-dotenv~=1.0.1
+
+# Utilities
+tiktoken>=0.8.0
+
+# Additional dependencies that might be needed for LangGraph Cloud
+langsmith

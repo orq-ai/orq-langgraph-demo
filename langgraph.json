@@ -1,8 +1,9 @@
 {
     "python_version": "3.12",
-    "dependencies": ["./src"],
+    "dependencies": ["./src", "./scripts", "./data", "./requirements.txt"],
     "graphs": {
         "agent": "./src/assistant/graph.py:graph"
     },
-    "env": "./.env"
+    "env": "./.env",
+"init": "./scripts/init_database.py"
 }

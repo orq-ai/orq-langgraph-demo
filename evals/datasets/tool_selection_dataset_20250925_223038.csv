@@ -1,0 +1,16 @@
+id,question,category,expected_tools,actual_tools_called,response,execution_time_ms,status,error_message,timestamp
+sql_001,Show me RAV4 sales in Germany for 2024,sql_only,get_sales_by_model,get_sales_by_model,"Based on our sales data, RAV4 performed well in Germany during 2024...",0,success,,2025-09-25T22:30:38.814192
+sql_002,What are the top 10 performing Toyota models this year?,sql_only,get_top_performing_models,get_top_performing_models,Here are the top performing Toyota models this year...,0,success,,2025-09-25T22:30:38.814203
+sql_003,Compare Lexus sales across European countries,sql_only,get_sales_by_region,get_sales_by_region,Lexus sales across European countries show strong performance...,0,success,,2025-09-25T22:30:38.814207
+sql_004,Show me monthly sales trends for hybrid vehicles in 2024,sql_only,get_powertrain_sales_trends,search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814211
+sql_005,Which countries have the highest Toyota sales?,sql_only,get_top_countries_by_sales,search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814214
+doc_001,What is the Toyota warranty coverage for Europe?,document_only,search_documents,search_documents,According to Toyota's warranty documentation...,0,success,,2025-09-25T22:30:38.814217
+doc_002,How do I check the engine oil in my RAV4?,document_only,search_documents,search_documents,"To check engine oil in your RAV4, follow these steps...",0,success,,2025-09-25T22:30:38.814221
+doc_003,What safety features does the Yaris Cross have?,document_only,search_documents,search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814224
+doc_004,Where is the tire repair kit located in a Toyota CHR?,document_only,search_documents,search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814227
+doc_005,What are the contract terms for Toyota leasing?,document_only,search_documents,search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814230
+mixed_001,How is RAV4 performing in sales and what maintenance does it require?,mixed,"get_sales_by_model,search_documents","get_sales_by_model,search_documents",RAV4 sales data shows... For maintenance requirements...,0,success,,2025-09-25T22:30:38.814233
+mixed_002,Show me Lexus sales trends and their warranty coverage,mixed,"get_sales_trends,search_documents",search_documents,According to Toyota's warranty documentation...,0,success,,2025-09-25T22:30:38.814236
+mixed_003,Which Toyota models are selling best and what are their safety features?,mixed,"get_top_performing_models,search_documents",search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814240
+mixed_004,Compare hybrid vehicle sales and explain how to maintain them,mixed,"get_powertrain_analysis,search_documents",search_documents,I can help you with that question...,0,success,,2025-09-25T22:30:38.814243
+mixed_005,What are European sales figures and what is the European warranty policy?,mixed,"get_sales_by_region,search_documents",search_documents,According to Toyota's warranty documentation...,0,success,,2025-09-25T22:30:38.814246
