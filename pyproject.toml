@@ -23,23 +23,17 @@ dependencies = [
     "langchain-openai ~=0.3.0",
     "langchain-text-splitters ~=0.3.0",
     "langgraph ~=0.6.6",
-
     # Vector Databases
     "chromadb >=1.1.0",
-    "lancedb >=0.25.0",
-
     # UI & Web Framework
     "chainlit >=2.6.3",
-
     # Data Processing
     "pandas ~=2.2.3",
     "pypdf ~=5.3.0",
-
     # Configuration & Validation
     "pydantic ~=2.10.1",
     "pydantic-settings ~=2.6.1",
-    "python-dotenv ~=1.0.1",
-
+    "python-dotenv ~=1.0.0",
     # Utilities
     "tiktoken >=0.8.0",
 ]
@@ -69,7 +63,7 @@ eval = [
 
 client = [
     "pydantic ~=2.10.1",
-    "python-dotenv ~=1.0.1",
+    "python-dotenv ~=1.0.0",
     "chainlit >=2.6.3",
 ]
 
