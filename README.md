@@ -51,6 +51,9 @@ See bellow the agent architecture.
 
 ![Agent Architecture](media/agent_architecture.png)
 
+For a detailed technical overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+
 ## Demo
 
 ### Basic Demo
