@@ -5,5 +5,7 @@
         "agent": "./src/assistant/graph.py:graph"
     },
     "env": "./.env",
-"init": "./scripts/init_database.py"
+    "init": "./scripts/init_database.py",
+    "dockerfile": "./Dockerfile.langsmith"
+
 }
