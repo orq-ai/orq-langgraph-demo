@@ -14,6 +14,20 @@ This assistant can:
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
+### You can try these questions
+
+**Using structured sales data:**
+- "What were the RAV4 sales in Germany in 2024?"
+- "Show me the top countries by vehicle sales"
+
+**Using unstructured documents:**
+- "What is the Toyota warranty coverage?"
+- "Where is the tire repair kit in the UX?"
+
+**Hybrid:**
+- "Compare RAV4 sales and summarize its warranty"
+
+
 ## How it works
 
 The assistant uses a multi-step LangGraph workflow with routing:
@@ -155,18 +169,6 @@ data/                                           # Sample CSV data
 docs/                                           # Sample PDF documents
 ```
 
-## You can try these questions
-
-**Using structured sales data:**
-- "What were the RAV4 sales in Germany in 2024?"
-- "Show me the top countries by vehicle sales"
-
-**Using unstructured documents:**
-- "What is the Toyota warranty coverage?"
-- "Where is the tire repair kit in the UX?"
-
-**Hybrid:**
-- "Compare RAV4 sales and summarize its warranty"
 
 ## Document Ingestion
 
