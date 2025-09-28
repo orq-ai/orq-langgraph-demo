@@ -23,7 +23,10 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
   - PDF documents, manuals, warranties, contracts
 
 ### 3. **Tool Layer**
-- **Individual SQL Tools**: Direct parameterized query execution without NL parsing overhead
+- **Individual SQL Tools**: Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
+All necessary SQL operations are accessible through predefined SQL statements exposed as individual tools.
+
+This approach prioritizes safety over flexibility. When new queries are required, they must be defined as new tools.
   - `get_sales_by_model`: Model-specific sales data with country/year filters
   - `get_sales_by_country`: Country-specific sales analysis
   - `get_sales_by_region`: Regional sales comparison and analysis
@@ -34,7 +37,8 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
   - `get_top_countries_by_sales`: Country rankings by sales performance
   - `get_powertrain_sales_trends`: Powertrain-specific monthly trends
   - `get_database_schema`: Safe database structure information
-- **Vector Search Tools**: Semantic search across documents
+
+- **Vector Search Tools**: Semantic search across documents. Available pdfs were ingested and persisted using ChromaDB.
 
 ### 4. **User Interface Layer**
 - **Framework**: Chainlit web application
@@ -48,8 +52,6 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
 ## Secure SQL Architecture
 
 The secure SQL implementation follows a multi-layer security approach:
-
-![Secure SQL Architecture](media/rag-architecture-security-sql.png)
 
 ### **Security Components:**
 - **Individual SQL Tools**: 10 specific tools with direct parameter mapping
@@ -81,7 +83,7 @@ The secure SQL implementation follows a multi-layer security approach:
 **Latency Breakdown:**
 - Safety check: ~100-200ms
 - Query classification: ~300-500ms
-- Tool execution: ~100-400ms (simplified SQL tools, no LLM parsing)
+- Tool execution: ~100-400ms
 - Response generation: ~1-3s (streaming)
 
 ### **Cost**
@@ -105,59 +107,6 @@ Infrastructure:
 ```
 
 ### **Security**
-
-**Security Architecture:**
-
-```mermaid
-graph TD
-    A[User Input] --> B[OpenAI Moderation API]
-    B --> C{Content Safe?}
-    C -->|No| D[Block & Log Violation]
-    C -->|Yes| E[Query Analysis & Router]
-    E --> F{Query Type?}
-
-    F -->|Off-topic| G[Block Off-topic Response]
-    F -->|Document Search| H[Vector Tool Path]
-    F -->|SQL Query| I[Individual SQL Tool Path]
-
-    %% Document Search Path
-    H --> H1[ChromaDB Vector Search]
-    H1 --> H2[Read-Only Document Access]
-    H2 --> H3[Return Filtered Results]
-
-    %% Individual SQL Tool Path - Simplified Security
-    I --> I1[🎯 Direct Tool Selection]
-    I1 --> I2[Tool Parameter Validation]
-    I2 --> I3{Parameters Valid?}
-    I3 -->|No| I4[Parameter Error Response]
-    I3 -->|Yes| I5[Query Template Selection]
-    I5 --> I6[Parameter Binding]
-    I6 --> I7[Execute in Thread Pool]
-    I7 --> I8[Read-Only SQLite Access]
-    I8 --> I9[Return Sanitized Results]
-
-    %% Response Generation
-    H3 --> J[Response Generator]
-    I9 --> J
-    J --> K[Final Safety Check]
-    K --> L[Stream Response to User]
-
-    %% Logging & Monitoring
-    D --> M[Security Event Log]
-    I4 --> M
-    G --> M
-
-    %% Styling
-    style D fill:#ffcccc,stroke:#cc0000
-    style I4 fill:#ffcccc,stroke:#cc0000
-    style G fill:#ffcccc,stroke:#cc0000
-    style M fill:#ffe6cc,stroke:#ff6600
-    style L fill:#ccffcc,stroke:#00cc00
-    style I1 fill:#e6f3ff,stroke:#0066cc
-    style I2 fill:#e6f3ff,stroke:#0066cc
-    style I8 fill:#f0f8e6,stroke:#66cc00
-    style H2 fill:#f0f8e6,stroke:#66cc00
-```
 
 **Security Measures:**
 |  **Layer** |  **Implementation Status** |  **Protection Against** |
@@ -205,41 +154,11 @@ graph TD
   - Type-safe parameter binding prevents injection
   - Comprehensive logging and error handling
   - Thread-safe execution with event loop compatibility
-- **Architecture Benefits**:
-  - Eliminated complex LLM parsing layer (reduced latency and cost)
-  - Improved tool selection accuracy with explicit descriptions
-  - Easier debugging and maintenance with direct tool mapping
-  - Zero SQL injection vulnerabilities by design
 
 **Document Serving Security:**
 - **Current**: By default Chainlit serves the files under the public directory as static files. Good for a prototype but not for production environment.
 - **Recommendation**: Ideally this would be served with something like blob storage or S3 bucket with proper access control and permissions.
 
-**Threat Model:**
-- **Input Validation**: OpenAI Moderation + Custom guardrails
-- **Data Access**: Read-only databases prevent data manipulation
-- **API Security**: Environment variables for sensitive keys
-- **Container Security**: Docker isolation with minimal attack surface
-
-###  **Maintainability**
-
-**Codebase Structure Assessment:**
-
-```
-Positives:
-├── Clear separation of concerns (agent/tools/UI)
-├── Type hints and Pydantic models throughout
-├── Configuration management with settings.py and .env
-├── Docker deployment standardization
-├── Automated CI/CD with Render.com
-└── Tool-based architecture also enables easy extension. Agent can easily have more data sources and capabilities without changing its architecture.
-
-Where to Improve:
-├── Hard-coded prompts could be externalized using Prompt Hubs. Making it easier to experiment, make changes, versioning and making it accessible for domain experts.
-├── Does not support Database migrations
-├── Implement suite of unit tests
-├── ✅ Evaluation pipeline enhanced with LangSmith integration
-```
 
 ## Evaluation & Testing
 
@@ -254,7 +173,6 @@ Where to Improve:
 - **Integration Scripts**:
   - `upload_to_langsmith.py`: Dataset registration and management
   - `run_langsmith_evaluation.py`: Automated evaluation pipeline
-  - `demo_langsmith_upload.py`: Preview and testing capabilities
 
 ### **Ground Truth Generation**
 - **Real SQL Responses**: Authentic database queries with actual Toyota/Lexus sales data
