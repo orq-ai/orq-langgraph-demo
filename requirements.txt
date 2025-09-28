@@ -1,9 +1,10 @@
 # Only include dependencies that are NOT in LangSmith's base image
 # LangSmith base image already includes: langchain-core, langchain-community,
-# langchain-openai, langchain-text-splitters, langgraph, pydantic, pydantic-settings
+# langchain-openai, langchain-text-splitters, langgraph
 
 # Vector Databases
 chromadb>=1.1.0
+lancedb>=0.25.0
 
 # UI & Web Framework
 chainlit>=2.0.0
@@ -12,7 +13,9 @@ chainlit>=2.0.0
 pandas~=2.2.3
 pypdf~=5.3.0
 
-# Configuration
+# Configuration & Validation
+pydantic>=2.10.1
+pydantic-settings>=2.6.1
 python-dotenv>=1.0.0
 
 # Utilities
