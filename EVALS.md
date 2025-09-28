@@ -2,6 +2,7 @@
 
 
 The evaluation pipeline consists of:
+
 - **Dataset Creation**: Upload test cases to LangSmith
 - **Evaluation Execution**: Run the assistant against test cases and measure performance
 - **Metrics**: We focus on tool selection accuracy
@@ -34,7 +35,7 @@ uv add langsmith
 ### 2. Set Up LangSmith
 
 1. **Create LangSmith Account**: Sign up at [https://smith.langchain.com/](https://smith.langchain.com/)
-2. **Get API Key**: Go to Settings → API Keys → Create API Key
+2. **Get API Key**: Go to Settings > API Keys > Create API Key
 3. **Set Environment Variable**:
 
 ```bash
@@ -58,10 +59,10 @@ The evaluation dataset (`evals/datasets/toyota_assistant_tool_calling_evals.json
 
 ```
 evals/
-├── create_eval_dataset_on_langsmith.py    # Upload dataset to LangSmith
-├── run_evaluation_pipeline.py             # Run evaluation pipeline
-└── datasets/
-    └── toyota_assistant_tool_calling_evals.jsonl  # Test cases dataset
+|-- create_eval_dataset_on_langsmith.py    # Upload dataset to LangSmith
+|-- run_evaluation_pipeline.py             # Run evaluation pipeline
+`-- datasets/
+    `-- toyota_assistant_tool_calling_evals.jsonl  # Test cases dataset
 ```
 
 ### Example Test Case
@@ -101,7 +102,7 @@ make evals-help
 **Expected Output:**
 ```
 Uploading Toyota Assistant Dataset to LangSmith
-📂 Loading evals/datasets/toyota_assistant_tool_calling_evals.jsonl...
+Loading evals/datasets/toyota_assistant_tool_calling_evals.jsonl...
 Loaded 15 examples
 Checking if dataset 'tool-calling-eval-dataset' already exists...
 Creating new dataset: tool-calling-eval-dataset
@@ -122,6 +123,7 @@ make evals-run
 ```
 
 **What this does:**
+
 - Loads your Toyota assistant graph from `src/assistant/`
 - Runs each test case through the assistant
 - Extracts tool calls and responses
@@ -129,6 +131,7 @@ make evals-run
 - Saves results to LangSmith for analysis
 
 **Expected Output:**
+
 ```
 Toyota Assistant Evaluation Pipeline
 ====================================
@@ -166,7 +169,7 @@ Measures performance by question type category. These are the available categori
 ### LangSmith UI
 
 1. **Go to**: [https://smith.langchain.com/](https://smith.langchain.com/)
-2. **Navigate to**: Projects → Toyota-Assistant-Evaluation
+2. **Navigate to**: Projects > Toyota-Assistant-Evaluation
 3. **View**: Experiment results, metrics, and individual test cases
 
 ### Key Metrics to Monitor

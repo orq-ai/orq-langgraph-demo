@@ -1,7 +1,6 @@
 # Toyota/Lexus RAG Assistant
 
-A RAG assistant that combines vehicle sales data and documents to answer automotive questions. Built with LangGraph, ChromaDB, and SQLite. Ready for deployment with Docker. 
-It also counts with [Evals](EVALS.md) with a detailed Evaluation Pipeline focused on testing tool calling using LangSmith.
+The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. It also includes a comprehensive [Evaluation Pipeline](EVALS.md) focused on testing tool calling accuracy using LangSmith.
 
 ## What it does
 
@@ -14,12 +13,12 @@ This assistant can:
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
-## What is included in the knowledge base?
-- **Sales Data** (Accessible via SQLite): Vehicle sales by model, country, and date
-- **Documents** (Accessible via ChromaDB): Toyota manuals, contracts, and warranty policies
+## Knowledge Base
 
+- **Sales Data** (SQLite): Vehicle sales by model, country, and date
+- **Documents** (ChromaDB): Toyota manuals, contracts, and warranty policies
 
-### You can try these questions
+### Example Questions
 
 **Using structured sales data:**
 - "What were the RAV4 sales in Germany in 2024?"
@@ -40,7 +39,8 @@ The assistant uses a multi-step LangGraph workflow with routing:
 1. **Safety Check**: OpenAI Moderation API filters harmful content
 2. **Query Analysis**: LLM classifies the question type and intent
 3. **Context-Aware Routing**: Routes to appropriate response path:
-   - **Toyota-specific**: If it detected that question is related to Toyota it uses tools (predefined SQL queries and semantic search) to answer the question
+   - **Toyota-specific**: If it detected that question is related to Toyota it uses 
+   tools (predefined SQL queries and semantic search) to answer the question
    - **Needs clarification**: Asks for more specific information
    - **Off-topic**: Politely redirects to Toyota/Lexus topics
 4. **Agentic Tool Loop**: For Toyota questions, iterates between model and tools until complete
@@ -115,7 +115,8 @@ export OPENAI_API_KEY="your-openai-api-key-here"
 
 3. **Setup databases**
 ```bash
-# This method will create the SQLite with the structured sales data and also ingest the pdfs to a ChromaDB
+# This method will create the SQLite with the structured 
+# sales data and also ingest the pdfs to a ChromaDB
 make setup-db
 ```
 
@@ -194,11 +195,13 @@ make tests
 Running full evaluation pipeline and testing realistic [sample questions](resources/converstation_starters.csv).
 
 ```bash
-# Command to run evaluation pipeline. Make sure you setup correctly Langsmith (see EVALS.md)
+# Command to run evaluation pipeline. 
+# Make sure you setup correctly Langsmith (see EVALS.md)
 make evals-run
 ```
 
 **Evaluation Features:**
+
 - **Tool Selection Accuracy**: Measures correct tool usage
 - **Category Performance**: SQL-only, document-only, mixed queries
 - **LangSmith Integration**: Results tracking and analysis
