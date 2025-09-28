@@ -23,7 +23,7 @@ class SQLQueryIntent(BaseModel):
     """Structured output for SQL query intent classification."""
 
     query_type: str = Field(
-        description="The type of SQL query needed: sales_by_model, sales_by_country, sales_by_region, sales_trend, model_comparison, powertrain_analysis, top_performers, or schema_info"
+        description="The type of SQL query needed: sales_by_model, sales_by_country, sales_by_region, sales_trend, model_comparison, powertrain_analysis, top_performers"
     )
     model_name: Optional[str] = Field(
         description="Vehicle model name if specified (e.g., 'RAV4', 'Prius', 'Camry')"
@@ -75,7 +75,6 @@ Available Query Types:
 - model_comparison: Comparing different models
 - powertrain_analysis: Analysis by powertrain type (HEV, BEV, ICE)
 - top_performers: Top performing models/countries/regions
-- schema_info: Database structure information
 
 Database Context:
 - Vehicle Models: RAV4, Prius, Camry, Corolla, C-HR, Yaris Cross, UX, NX, RX, ES, etc.
@@ -98,14 +97,11 @@ Examples:
 "Top 5 countries by Toyota sales" → query_type: top_performers, comparison_type: by_country, brand: Toyota, limit: 5
 "Hybrid vehicle sales trends" → query_type: powertrain_analysis, powertrain: HEV, time_period: trends
 "Compare Toyota and Lexus sales" → query_type: model_comparison, brand: Toyota, comparison_type: by_brand
-"What tables are available?" → query_type: schema_info
 "Show me European market performance" → query_type: sales_by_region, region: Europe
 "Show me Toyota RAV4 sales by month in Germany for the year 2024" → query_type: sales_by_model, model_name: RAV4, country: Germany, year: 2024
 
 IMPORTANT CLASSIFICATION RULES:
 - If the question mentions a specific car model (RAV4, Prius, Camry, etc.), use sales_by_model
-- If the question asks about sales data or performance, do NOT use schema_info
-- Only use schema_info for questions about database structure, tables, or schema
 - For sales questions, always classify based on the primary entity (model, country, region)
 
 Always prioritize security and use exact parameter extraction. If uncertain about parameters, use safe defaults."""
@@ -149,10 +145,9 @@ Always prioritize security and use exact parameter extraction. If uncertain abou
             "model_comparison": QueryType.MODEL_COMPARISON,
             "powertrain_analysis": QueryType.POWERTRAIN_ANALYSIS,
             "top_performers": QueryType.TOP_PERFORMERS,
-            "schema_info": QueryType.SCHEMA_INFO,
         }
 
-        return type_mapping.get(llm_query_type, QueryType.SCHEMA_INFO)
+        return type_mapping.get(llm_query_type, QueryType.SALES_BY_MODEL)
 
     def _build_parameters(self, response: SQLQueryIntent) -> QueryParameters:
         """Build QueryParameters from LLM response."""
