@@ -14,7 +14,7 @@ This assistant can:
 
 You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
 
-### What's included in the knowledge base?
+## What's included in the knowledge base?
 - **Sales Data** (Accessible via SQLite): Vehicle sales by model, country, and date
 - **Documents** (Accessible via ChromaDB): Toyota manuals, contracts, and warranty policies
 
