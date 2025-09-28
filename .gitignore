@@ -178,8 +178,5 @@ api_keys.txt
 # Ruff cache
 .ruff_cache/
 
-# Database archives (created for Docker builds)
-databases.zip
-
 # Chainlit auto-generated files
 .chainlit/translations/
