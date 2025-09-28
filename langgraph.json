@@ -1,6 +1,6 @@
 {
     "python_version": "3.12",
-    "dependencies": ["./src", "./scripts", "./data"],
+    "dependencies": ["./src", "./scripts", "./data", "./requirements.txt"],
     "graphs": {
         "agent": "./src/assistant/graph.py:graph"
     },
