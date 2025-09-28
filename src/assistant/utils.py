@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
-from assistant.tools import SearchResult
+from assistant.models import SearchResult
 
 
 def get_message_text(msg: BaseMessage) -> str:

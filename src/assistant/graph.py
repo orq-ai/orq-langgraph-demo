@@ -21,8 +21,9 @@ from langgraph.runtime import Runtime
 
 from assistant.context import Context
 from assistant.guardrails import GuardrailsOutput, OpenAIModerator, SafetyAssessment
+from assistant.models import SearchResult
 from assistant.state import InputState, Router, State
-from assistant.tools import TOOLS, SearchResult
+from assistant.tools import TOOLS, search_documents, search_in_document
 from assistant.utils import convert_search_result_to_document, load_chat_model
 
 load_dotenv()
@@ -223,10 +224,6 @@ def route_query(
 
 async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
     """Call tools and track executed queries and retrieved documents."""
-    from assistant.tools import (
-        search_documents,
-        search_in_document,
-    )
 
     # Track executed SQL queries and retrieved documents
     executed_queries = list(state.executed_sql_queries) if state.executed_sql_queries else []

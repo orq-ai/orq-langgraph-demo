@@ -12,24 +12,13 @@ from typing import Any, Callable, Dict, List, Optional
 from langchain_chroma import Chroma
 from langchain_core.tools import tool
 from langchain_openai import OpenAIEmbeddings
-from pydantic import BaseModel, Field
 
 from core.settings import settings
 
-from .sql_tools import SECURE_SQL_TOOLS
+from .models import SearchResult
+from .sql_tools import INDIVIDUAL_SQL_TOOLS
 
 logger = logging.getLogger(__name__)
-
-
-class SearchResult(BaseModel):
-    """Schema for search results."""
-
-    filename: str = Field(description="Name of the document file")
-    page: int = Field(description="Page number in the document")
-    chunk_index: int = Field(description="Chunk index within the document")
-    content: str = Field(description="Text content of the chunk")
-    relevance_score: float = Field(description="Relevance score for the search")
-    chunk_id: str = Field(description="Unique chunk identifier")
 
 
 # Global variables for lazy initialization
@@ -264,12 +253,12 @@ def search_in_document(filename: str, query: str, limit: int = 3) -> List[Search
         return []
 
 
-# Expose tools for LangGraph - UPDATED WITH SECURE SQL TOOLS
+# Expose tools for LangGraph - UPDATED WITH INDIVIDUAL SQL TOOLS
 TOOLS: List[Callable[..., Any]] = [
     search_documents,
     list_available_documents,
     search_in_document,
-] + SECURE_SQL_TOOLS  # Replace vulnerable SQL tools with secure versions
+] + INDIVIDUAL_SQL_TOOLS  # Individual SQL tools for specific query types
 
 
 def get_vectorstore() -> Optional[Chroma]:

@@ -124,50 +124,6 @@ class SQLSecurityValidator:
                 warnings.append(f"Suspicious pattern: {pattern[:20]}...")
                 logger.info(f"Suspicious pattern detected: {pattern}")
 
-        # Character ratio analysis
-        special_chars = sum(1 for c in user_input if not c.isalnum() and not c.isspace())
-        special_char_ratio = special_chars / len(user_input) if len(user_input) > 0 else 0
-
-        if special_char_ratio > self.max_special_char_ratio:
-            warnings.append(f"High special character ratio: {special_char_ratio:.2f}")
-
-        # SQL keyword density check
-        sql_keywords = [
-            "select",
-            "from",
-            "where",
-            "join",
-            "union",
-            "insert",
-            "update",
-            "delete",
-            "drop",
-            "create",
-            "alter",
-            "grant",
-            "revoke",
-        ]
-
-        keyword_count = sum(1 for keyword in sql_keywords if keyword in input_lower)
-        keyword_ratio = keyword_count / len(user_input.split()) if user_input.split() else 0
-
-        if keyword_ratio > 0.5:  # More than 50% SQL keywords
-            warnings.append(f"High SQL keyword density: {keyword_ratio:.2f}")
-
-        # Bracket balance check
-        open_brackets = user_input.count("(") + user_input.count("[") + user_input.count("{")
-        close_brackets = user_input.count(")") + user_input.count("]") + user_input.count("}")
-
-        if abs(open_brackets - close_brackets) > 2:
-            warnings.append("Unbalanced brackets detected")
-
-        # Quote balance check
-        single_quotes = user_input.count("'")
-        double_quotes = user_input.count('"')
-
-        if single_quotes % 2 != 0 or double_quotes % 2 != 0:
-            warnings.append("Unbalanced quotes detected")
-
         return True, "Input validation passed", warnings
 
     def sanitize_input(self, user_input: str) -> str:

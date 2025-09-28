@@ -224,7 +224,7 @@ async def on_message(message: cl.Message):
         # Good for a prototype but not for production environment.
         # Ideally this would be server with something like blobstorage or s3 bucket with proper access control and permissions.
         # More requirements constraints are necessary to consider what would be the best approach for production environment.
-        docs_dir = Path(__file__).parent.parent / "public"
+        docs_dir = Path(__file__).parent.parent / "public" / "docs"
 
         # Create PDF elements from retrieved documents (no text parsing needed!)
         pdf_elements = create_pdf_elements_from_retrieved_docs(retrieved_documents, docs_dir)
