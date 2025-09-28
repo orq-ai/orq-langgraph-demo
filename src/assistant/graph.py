@@ -20,6 +20,7 @@ try:
 except ImportError:
     # dotenv not available, environment variables should be set directly
     pass
+
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
