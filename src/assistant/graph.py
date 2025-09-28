@@ -13,7 +13,13 @@ except ImportError:
 import logging
 from typing import Any, Dict, List, Literal, cast
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    # dotenv not available, environment variables should be set directly
+    pass
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
@@ -25,8 +31,6 @@ from assistant.models import SearchResult
 from assistant.state import InputState, Router, State
 from assistant.tools import TOOLS, search_documents, search_in_document
 from assistant.utils import convert_search_result_to_document, load_chat_model
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
