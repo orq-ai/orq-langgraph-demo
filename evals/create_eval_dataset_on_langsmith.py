@@ -33,7 +33,7 @@ def main():
         print(f"Dataset file not found: {filename}")
         return 1
 
-    print(f"📂 Loading {filename}...")
+    print(f"Loading {filename}...")
     examples = []
     with open(filename, "r") as f:
         for line in f:
