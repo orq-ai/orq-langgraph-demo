@@ -23,7 +23,7 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
   - PDF documents, manuals, warranties, contracts
 
 ### 3. **Tool Layer**
-- **Individual SQL Tools**: Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
+- **Individual SQL Tools**: 10 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
 All necessary SQL operations are accessible through predefined SQL statements exposed as individual tools.
 
 This approach prioritizes safety over flexibility. When new queries are required, they must be defined as new tools.
@@ -145,15 +145,6 @@ Infrastructure:
 - **Input Guardrails**: OpenAI Moderation API filters all incoming messages before processing. It is a simple solution given the time constraints.
 - **Database Security**: Individual SQL tools with predefined parameterized queries.
 - **Off-topic Protection**: Off-topic conversations are a risky vector for Prompt or SQL injection and jailbreaking. We block that with a router node.
-
-**✅ Simplified Secure SQL System:**
-- **Streamlined Protection**: Direct tool selection → Parameter validation → Parameterized queries
-- **Security Features**:
-  - Individual tools with explicit parameter types and validation
-  - Query template whitelisting (10 approved query types)
-  - Type-safe parameter binding prevents injection
-  - Comprehensive logging and error handling
-  - Thread-safe execution with event loop compatibility
 
 **Document Serving Security:**
 - **Current**: By default Chainlit serves the files under the public directory as static files. Good for a prototype but not for production environment.
