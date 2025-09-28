@@ -256,6 +256,9 @@ async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
 
         try:
             # Execute the tool directly and capture the result
+            # We are doing this to track the retrieved documents
+            # TODO: This can be simpler. We should have a better way to track the retrieved documents
+
             if tool_name == "search_documents":
                 tool_result = search_documents.invoke(tool_args)
 
@@ -291,9 +294,6 @@ async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
                     content=str(tool_result), tool_call_id=tool_id, name=tool_name
                 )
                 tool_messages.append(tool_message)
-
-            # Legacy SQL tools have been replaced with secure versions
-            # The secure SQL tools are handled by the standard ToolNode below
 
             else:
                 # For other tools, use standard execution

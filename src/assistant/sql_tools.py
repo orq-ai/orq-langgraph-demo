@@ -240,30 +240,6 @@ def get_powertrain_sales_trends(
     logger.info(f"Getting powertrain trends for: {powertrain}, year: {year}")
     return simple_sql_executor.execute_query("powertrain_trends", params)
 
-
-@tool(
-    description="""Get database schema and table structure information.
-
-Use this tool when you need to understand the database structure or available data.
-
-Examples:
-- "What tables are available?"
-- "Show me the database structure"
-- "What data do we have?"
-
-This tool provides information about:
-- Available tables (fact_sales, dim_model, dim_country, etc.)
-- Table types and descriptions
-- Database organization"""
-)
-def get_database_schema() -> str:
-    """Get database schema information."""
-    params = QueryParameters()
-
-    logger.info("Getting database schema information")
-    return simple_sql_executor.execute_query("schema_info", params)
-
-
 # List of all individual SQL tools
 INDIVIDUAL_SQL_TOOLS: List[Callable[..., Any]] = [
     get_sales_by_model,
@@ -275,20 +251,4 @@ INDIVIDUAL_SQL_TOOLS: List[Callable[..., Any]] = [
     compare_models_by_brand,
     get_top_countries_by_sales,
     get_powertrain_sales_trends,
-    get_database_schema,
 ]
-
-
-def get_sql_tools_info() -> dict:
-    """Get information about available SQL tools."""
-    return {
-        "total_tools": len(INDIVIDUAL_SQL_TOOLS),
-        "tool_names": [tool.name for tool in INDIVIDUAL_SQL_TOOLS],
-        "description": "Individual SQL tools for specific query types with parameterized execution",
-        "security_features": [
-            "Parameterized queries",
-            "Read-only database access",
-            "Input validation",
-            "Direct tool selection (no NL parsing)",
-        ],
-    }

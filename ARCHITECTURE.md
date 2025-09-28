@@ -23,7 +23,7 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
   - PDF documents, manuals, warranties, contracts
 
 ### 3. **Tool Layer**
-- **Individual SQL Tools**: 10 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
+- **Individual SQL Tools**: 9 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
 All necessary SQL operations are accessible through predefined SQL statements exposed as individual tools.
 
 This approach prioritizes safety over flexibility. In case we see new data needs we need to review the available queries and provide new tools if necessary.
@@ -36,10 +36,9 @@ Here is the list of predefined queries and their use:
   - `get_sales_trends`: Monthly sales trends and patterns
   - `get_top_performing_models`: Best-selling models by sales volume
   - `get_powertrain_analysis`: Sales performance by powertrain type
-  - `compare_models_by_brand`: Brand-specific model comparisons
   - `get_top_countries_by_sales`: Country rankings by sales performance
   - `get_powertrain_sales_trends`: Powertrain-specific monthly trends
-  - `get_database_schema`: Safe database structure information
+  - `compare_models_by_brand`: Brand-specific model comparisons
 
 - **Vector Search Tools**: Semantic search across documents. Available pdfs were ingested and persisted using ChromaDB.
 

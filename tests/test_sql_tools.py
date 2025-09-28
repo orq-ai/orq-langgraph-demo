@@ -6,14 +6,12 @@ from assistant.sql_schemas import QueryParameters
 from assistant.sql_tools import (
     INDIVIDUAL_SQL_TOOLS,
     compare_models_by_brand,
-    get_database_schema,
     get_powertrain_analysis,
     get_powertrain_sales_trends,
     get_sales_by_country,
     get_sales_by_model,
     get_sales_by_region,
     get_sales_trends,
-    get_sql_tools_info,
     get_top_countries_by_sales,
     get_top_performing_models,
 )
@@ -186,21 +184,7 @@ class TestSQLTools:
         assert call_args[0][1].brand == "Toyota"
         assert call_args[0][1].limit == 12
         assert result == "Mock powertrain trends data"
-
-    @patch("assistant.sql_tools.simple_sql_executor")
-    def test_get_database_schema(self, mock_executor):
-        """Test get_database_schema tool."""
-        mock_executor.execute_query.return_value = "Mock schema data"
-
-        result = get_database_schema.invoke({})
-
-        mock_executor.execute_query.assert_called_once()
-        call_args = mock_executor.execute_query.call_args
-
-        assert call_args[0][0] == "schema_info"
-        assert isinstance(call_args[0][1], QueryParameters)
-        assert result == "Mock schema data"
-
+    
     def test_default_parameters(self):
         """Test that default parameters work correctly."""
         with patch("assistant.sql_tools.simple_sql_executor") as mock_executor:
@@ -229,24 +213,9 @@ class TestSQLTools:
             compare_models_by_brand,
             get_top_countries_by_sales,
             get_powertrain_sales_trends,
-            get_database_schema,
         ]
 
         assert len(INDIVIDUAL_SQL_TOOLS) == len(expected_tools)
 
         for tool in expected_tools:
             assert tool in INDIVIDUAL_SQL_TOOLS
-
-    def test_get_sql_tools_info(self):
-        """Test get_sql_tools_info function."""
-        info = get_sql_tools_info()
-
-        assert "total_tools" in info
-        assert "tool_names" in info
-        assert "description" in info
-        assert "security_features" in info
-
-        assert info["total_tools"] == len(INDIVIDUAL_SQL_TOOLS)
-        assert len(info["tool_names"]) == len(INDIVIDUAL_SQL_TOOLS)
-        assert isinstance(info["security_features"], list)
-        assert len(info["security_features"]) > 0
