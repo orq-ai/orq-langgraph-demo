@@ -86,12 +86,7 @@ Overview of how data flows through the agent to answer questions.
 ```
 Per 1000 User Interactions (estimated):
 
-OpenAI API Costs:
-|-- GPT-4.1-mini (Router): ~$0.15-0.30
-|-- GPT-4.1-mini (Main): ~$1.50-3.00
-|-- Embeddings: ~$0.10-0.20
-|-- Moderation: ~$0.02
-`-- Total OpenAI: ~$1.77-3.52
+OpenAI API Costs: ~$1.35 per 1000 questions
 
 Infrastructure:
 |-- Compute [Render](https://render.com/): ~$7-25/month
