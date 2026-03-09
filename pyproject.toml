@@ -17,12 +17,12 @@ requires-python = ">=3.11"
 
 dependencies = [
     # Core LangChain & LangGraph
-    "langchain-core ~=0.3.33",
+    "langchain-core~=0.3.33",
     "langchain-community ~=0.3.16",
     "langchain-chroma ~=0.2.3",
-    "langchain-openai ~=0.3.0",
+    "langchain-openai~=0.3.0",
     "langchain-text-splitters ~=0.3.0",
-    "langgraph ~=0.6.6",
+    "langgraph~=0.6.6",
     # Vector Databases
     "chromadb >=1.1.0",
     # UI & Web Framework
@@ -34,6 +34,10 @@ dependencies = [
     "pydantic ~=2.10.1",
     "pydantic-settings ~=2.6.1",
     "python-dotenv ~=1.0.0",
+    # Observability
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
     # Utilities
     "tiktoken >=0.8.0",
 ]

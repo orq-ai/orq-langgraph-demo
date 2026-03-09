@@ -15,6 +15,10 @@ Key features:
 import logging
 from pathlib import Path
 
+from assistant.tracing import setup_tracing
+
+setup_tracing()
+
 import chainlit as cl
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig

@@ -11,6 +11,7 @@ from langchain_core.messages import BaseMessage
 
 from assistant.models import SearchResult
 
+import os
 
 def get_message_text(msg: BaseMessage) -> str:
     """Get the text content of a message."""
@@ -96,4 +97,6 @@ def load_chat_model(fully_specified_name: str) -> BaseChatModel:
         fully_specified_name (str): String in the format 'provider/model'.
     """
     provider, model = fully_specified_name.split("/", maxsplit=1)
+    # return init_chat_model(model, model_provider=provider, api_key=os.getenv("ORQ_API_KEY"),
+    # base_url="https://api.orq.ai/v2/router")
     return init_chat_model(model, model_provider=provider)
