@@ -3,8 +3,8 @@
 
 The evaluation pipeline consists of:
 
-- **Dataset Creation**: Upload test cases to LangSmith
-- **Evaluation Execution**: Run the assistant against test cases and measure performance
+- **Dataset Creation**: Upload test cases to orq.ai
+- **Evaluation Execution**: Run the assistant against test cases and measure performance using [evaluatorq](https://docs.orq.ai/docs/experiments/api)
 - **Metrics**: We focus on tool selection accuracy
 
 ![Evaluating Tool Calling](media/tool-calling-evals.png)
@@ -12,7 +12,7 @@ The evaluation pipeline consists of:
 ## Quick Start
 
 ```bash
-# Upload evaluation dataset to LangSmith
+# Upload evaluation dataset to orq.ai
 make evals-upload-dataset
 
 # Run evaluation pipeline
@@ -26,23 +26,21 @@ make evals-help
 
 ### 1. Install Dependencies
 
-Make sure you have Langsmith dependency installed.
+Make sure you have the eval dependencies installed.
 
 ```bash
-uv add langsmith
+uv sync --group eval
 ```
 
-### 2. Set Up LangSmith
+### 2. Set Up orq.ai
 
-1. **Create LangSmith Account**: Sign up at [https://smith.langchain.com/](https://smith.langchain.com/)
+1. **Create orq.ai Account**: Sign up at [https://my.orq.ai/](https://my.orq.ai/)
 2. **Get API Key**: Go to Settings > API Keys > Create API Key
 3. **Set Environment Variable**:
 
 ```bash
 # Add to your .env file
-LANGCHAIN_API_KEY=your_api_key_here
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=Toyota-Assistant-Evaluation
+ORQ_API_KEY=your_api_key_here
 ```
 
 ## Dataset Structure
@@ -59,8 +57,8 @@ The evaluation dataset (`evals/datasets/toyota_assistant_tool_calling_evals.json
 
 ```
 evals/
-|-- create_eval_dataset_on_langsmith.py    # Upload dataset to LangSmith
-|-- run_evaluation_pipeline.py             # Run evaluation pipeline
+|-- create_eval_dataset.py                # Upload dataset to orq.ai
+|-- run_evaluation_pipeline.py            # Run evaluation pipeline
 `-- datasets/
     `-- toyota_assistant_tool_calling_evals.jsonl  # Test cases dataset
 ```
@@ -87,30 +85,24 @@ evals/
 }
 ```
 
-## Step 1: Register the Evaluation Dataset on Langsmith
+## Step 1: Register the Evaluation Dataset on orq.ai
 
-Upload the test cases to LangSmith:
+Upload the test cases to orq.ai:
 
 ```bash
 # Using Makefile (recommended)
 make evals-upload-dataset
-
-# Show help
-make evals-help
 ```
 
 **Expected Output:**
 ```
-Uploading Toyota Assistant Dataset to LangSmith
+Uploading Toyota Assistant Dataset to orq.ai
 Loading evals/datasets/toyota_assistant_tool_calling_evals.jsonl...
 Loaded 15 examples
-Checking if dataset 'tool-calling-eval-dataset' already exists...
-Creating new dataset: tool-calling-eval-dataset
-Created new dataset with ID: 12345678-1234-1234-1234-123456789abc
-Uploading 15 examples...
-Success! Dataset ID: 12345678-1234-1234-1234-123456789abc
-Uploaded 15 examples to dataset 'tool-calling-eval-dataset'
-View at: https://smith.langchain.com/datasets/12345678-1234-1234-1234-123456789abc
+Creating dataset: toyota-assistant-tool-calling-evals
+Uploading 15 datapoints...
+Success! Dataset ID: 01ARZ3NDEKTSV4RRFFQ69G5FAV
+View at: https://my.orq.ai/datasets/01ARZ3NDEKTSV4RRFFQ69G5FAV
 ```
 
 ## Step 2: Run Evaluation Pipeline
@@ -118,36 +110,36 @@ View at: https://smith.langchain.com/datasets/12345678-1234-1234-1234-123456789a
 Execute the evaluation against your assistant:
 
 ```bash
-# Using Makefile
+# Run with local file (default)
 make evals-run
+
+# Or run against an orq.ai dataset by ID
+python evals/run_evaluation_pipeline.py <dataset_id>
 ```
 
 **What this does:**
 
 - Loads your Toyota assistant graph from `src/assistant/`
-- Runs each test case through the assistant
+- Runs each test case through the assistant via an evaluatorq `@job`
 - Extracts tool calls and responses
 - Evaluates checking if the agent called the correct tools
-- Saves results to LangSmith for analysis
+- Syncs results to orq.ai for analysis (when `ORQ_API_KEY` is set)
 
 **Expected Output:**
 
 ```
-Toyota Assistant Evaluation Pipeline
-====================================
-Dataset: toyota-assistant-tool-calling-evaluation
-Examples: 15
-Started: 2024-01-15 14:30:00
-Active Evaluators: 2 (tool_accuracy_evaluator, category_accuracy_evaluator)
+Toyota Assistant Evaluation Pipeline (orq.ai)
+==================================================
+Loaded 15 datapoints from local file
 Starting evaluation...
-Evaluation completed in 45.2 seconds
-Evaluation completed successfully!
-Results available in LangSmith UI
+...
+Evaluation completed!
+Results available in orq.ai Studio: https://my.orq.ai/experiments
 ```
 
 ## Evaluation Metrics
 
-### 1. Tool Accuracy Evaluator
+### 1. Tool Accuracy Scorer
 
 Measures how accurately the assistant selects the expected tools:
 
@@ -156,7 +148,7 @@ Measures how accurately the assistant selects the expected tools:
 - **Partial Match (0.0-0.9)**: Some expected tools missing
 - **No Match (0.0)**: No expected tools called
 
-### 2. Category Accuracy Evaluator
+### 2. Category Accuracy Scorer
 
 Measures performance by question type category. These are the available categories:
 
@@ -166,10 +158,10 @@ Measures performance by question type category. These are the available categori
 
 ## Viewing Results
 
-### LangSmith UI
+### orq.ai Studio
 
-1. **Go to**: [https://smith.langchain.com/](https://smith.langchain.com/)
-2. **Navigate to**: Projects > Toyota-Assistant-Evaluation
+1. **Go to**: [https://my.orq.ai/](https://my.orq.ai/)
+2. **Navigate to**: Experiments
 3. **View**: Experiment results, metrics, and individual test cases
 
 ### Key Metrics to Monitor

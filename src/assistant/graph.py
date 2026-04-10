@@ -404,4 +404,6 @@ builder.add_conditional_edges(
 builder.add_edge("tools", "call_model")
 
 # Compile the builder into an executable graph
-graph = builder.compile(name="Toyota Assistant")
+# Tracing is handled by OTEL (setup_tracing in chainlit_app.py), which captures
+# the full LangGraph execution tree and auto-registers assets in orq.ai Control Tower.
+graph = builder.compile(name="RAG Assistant")

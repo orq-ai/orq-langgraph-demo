@@ -1,7 +1,3 @@
-# Only include dependencies that are NOT in LangSmith's base image
-# LangSmith base image already includes: langchain-core, langchain-community,
-# langchain-openai, langchain-text-splitters, langgraph
-
 # Vector Databases
 chromadb>=1.1.0
 

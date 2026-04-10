@@ -143,7 +143,7 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 
 ## Evaluation & Testing
 
-### **LangSmith Integration**
+### **orq.ai Evaluation (evaluatorq)**
 
 - **Dataset Management**: Ground truth datasets with 15 test questions covering SQL-only, document-only, and mixed scenarios
 - **Categories Tested**:

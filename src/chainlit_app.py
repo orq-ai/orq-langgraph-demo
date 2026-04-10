@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Chainlit UI for Toyota/Lexus Assistant.
+Chainlit UI for the RAG Assistant.
 
-This is the Chainlit-based web interface for the Toyota/Lexus RAG assistant.
+This is the Chainlit-based web interface for the LangGraph RAG assistant.
 It supports basic multi-turn conversations with the LangGraph agent.
 
 Key features:
@@ -32,10 +32,12 @@ from core.settings import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Suppress OpenAI HTTP request logs for cleaner output
+# Suppress noisy HTTP and tracing logs for cleaner output
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+# Suppress LangchainTracer serialization warnings (non-fatal, traces still flow via OTEL)
+logging.getLogger("langchain_core.callbacks.manager").setLevel(logging.ERROR)
 
 # System prompts are now centralized in prompts.py
 
@@ -128,7 +130,7 @@ async def set_starters():
 
 @cl.on_chat_start
 async def start():
-    """Initialize the Toyota/Lexus RAG agent when a new chat session starts."""
+    """Initialize the RAG agent when a new chat session starts."""
     try:
         logger.info("Starting new chat session")
 

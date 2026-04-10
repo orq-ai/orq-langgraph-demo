@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database initialization script for LangGraph deployment on LangSmith.
+Database initialization script for LangGraph deployment.
 
 This script runs before the graph is loaded and ensures the SQLite database
 is properly initialized using the existing structured data ingestion pipeline.

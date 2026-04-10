@@ -1,4 +1,8 @@
-"""OpenTelemetry tracing configuration for orq.ai observability."""
+"""Orq.ai tracing configuration for LangGraph observability.
+
+Uses OpenTelemetry (OTEL) to capture LangGraph traces and auto-register assets
+(agents, tools, models) in the orq.ai Control Tower.
+"""
 
 import os
 

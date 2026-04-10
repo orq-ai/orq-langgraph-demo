@@ -24,6 +24,13 @@ class Settings(BaseSettings):
         ..., description="OpenAI API key for accessing GPT models", env="OPENAI_API_KEY"
     )
 
+    # orq.ai Configuration
+    ORQ_PROJECT_NAME: str = Field(
+        default="Default",
+        description="orq.ai project name for organizing datasets, experiments, and evaluators",
+        env="ORQ_PROJECT_NAME",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",

@@ -1,6 +1,6 @@
 # Toyota/Lexus RAG Assistant
 
-The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. It also includes a comprehensive [Evaluation Pipeline](EVALS.md) focused on testing tool calling accuracy using LangSmith.
+The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. It also includes a comprehensive [Evaluation Pipeline](EVALS.md) focused on testing tool calling accuracy using [orq.ai](https://orq.ai).
 More details about the architecture can be found [here](ARCHITECTURE.md).
 
 ## What it does
@@ -191,13 +191,13 @@ make tests
 - **Code Quality**: Ruff linting
 - **Security**: Bandit security scanning
 
-### Evals: Integrated Evaluation Pipeline using Langsmith
+### Evals: Integrated Evaluation Pipeline using orq.ai
 
 Running full evaluation pipeline and testing realistic [sample questions](resources/converstation_starters.csv).
 
 ```bash
-# Command to run evaluation pipeline. 
-# Make sure you setup correctly Langsmith (see EVALS.md)
+# Command to run evaluation pipeline.
+# Make sure you set ORQ_API_KEY (see EVALS.md)
 make evals-run
 ```
 
@@ -205,7 +205,7 @@ make evals-run
 
 - **Tool Selection Accuracy**: Measures correct tool usage
 - **Category Performance**: SQL-only, document-only, mixed queries
-- **LangSmith Integration**: Results tracking and analysis
+- **orq.ai Integration**: Results tracking, experiment comparison, and analysis via [evaluatorq](https://docs.orq.ai/docs/experiments/api)
 - **15 Test Cases**: Comprehensive evaluation dataset (5 expecting SQL queries, 5 expecting semantic search, and 5 mixed queries using both)
 
 For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).

@@ -1,7 +1,6 @@
-"""This module provides Toyota RAG tools for document search and SQL queries.
+"""RAG tools for document search and SQL queries.
 
-These tools are designed for Toyota/Lexus vehicle information and sales data analysis.
-Uses ChromaDB for semantic document search and SQLite for sales data queries.
+Uses ChromaDB for semantic document search and SQLite for structured data queries.
 """
 
 import logging

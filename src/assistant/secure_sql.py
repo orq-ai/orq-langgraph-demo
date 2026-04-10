@@ -1,4 +1,4 @@
-"""Secure SQL execution system with parameterized queries for Toyota RAG Assistant.
+"""Secure SQL execution system with parameterized queries for the RAG Assistant.
 
 This module provides a secure interface for SQL operations using predefined query templates
 and parameterized execution to prevent SQL injection attacks.
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class QueryType(Enum):
-    """Approved query types for the Toyota RAG system."""
+    """Approved query types for the RAG system."""
 
     SALES_BY_MODEL = "sales_by_model"
     SALES_BY_COUNTRY = "sales_by_country"

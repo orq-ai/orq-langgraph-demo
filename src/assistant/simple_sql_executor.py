@@ -1,4 +1,4 @@
-"""Simplified secure SQL executor for Toyota RAG Assistant.
+"""Simplified secure SQL executor for the RAG Assistant.
 
 This module provides a simple, secure interface for executing predefined SQL queries
 with parameterized execution to prevent SQL injection attacks.

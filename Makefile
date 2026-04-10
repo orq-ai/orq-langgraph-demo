@@ -48,15 +48,13 @@ setup-embeddings-db: ## Initialize databases with sample data
 setup-db: setup-structured-db setup-embeddings-db
 
 # Evaluation pipeline
-evals-upload-dataset: ## Upload evaluation dataset to LangSmith
-	uv run python evals/create_eval_dataset_on_langsmith.py evals/datasets/toyota_assistant_tool_calling_evals.jsonl
+evals-upload-dataset: ## Upload evaluation dataset to orq.ai
+	uv run python evals/create_eval_dataset.py
 
-evals-run: ## Run evaluation pipeline against LangSmith dataset
-	uv run python evals/run_evaluation_pipeline.py toyota-assistant-tool-calling-evals
+evals-run: ## Run evaluation pipeline using evaluatorq
+	uv run python evals/run_evaluation_pipeline.py --from-file
 
 evals-help: ## Show evaluation script help
-	uv run python evals/create_eval_dataset_on_langsmith.py --help
-	@echo ""
 	uv run python evals/run_evaluation_pipeline.py --help
 
 # Cleanup
