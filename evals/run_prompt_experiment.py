@@ -73,6 +73,34 @@ def extract_tools_from_messages(messages: List[Any]) -> List[str]:
     return tools_called
 
 
+def extract_tool_outputs_from_messages(messages: List[Any]) -> List[str]:
+    """Extract ToolMessage content strings from the conversation.
+
+    Captures everything the agent saw as tool results — KB chunks, SQL
+    query results, etc. — labeled by tool name so the grounding /
+    hallucination judges can evaluate against ALL retrieved context.
+    """
+    outputs: List[str] = []
+    for message in messages:
+        if not (hasattr(message, "name") and hasattr(message, "tool_call_id")):
+            continue
+        content = getattr(message, "content", None)
+        if not content:
+            continue
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            text = str(content)
+        tool_name = getattr(message, "name", "tool")
+        outputs.append(f"[{tool_name}]\n{text}")
+    return outputs
+
+
 async def _run_agent_with_prompt(
     data: DataPoint, row: int, variant_label: str, system_prompt: str
 ) -> dict:
@@ -97,11 +125,9 @@ async def _run_agent_with_prompt(
     response = result["messages"][-1].content
     tools_called = extract_tools_from_messages(result["messages"])
 
-    # Capture retrievals for grounding / hallucination scorers
-    retrieved_docs = result.get("retrieved_documents") or []
-    retrievals = [
-        doc.page_content for doc in retrieved_docs if hasattr(doc, "page_content")
-    ]
+    # Capture retrievals for grounding / hallucination scorers.
+    # Uses all tool outputs (KB + SQL) so evaluators see every source.
+    retrievals = extract_tool_outputs_from_messages(result["messages"])
 
     return {
         "variant": variant_label,

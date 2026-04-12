@@ -83,22 +83,33 @@ Return ONLY `1` if the response PASSES, `0` if it FAILS. No prose, no explanatio
 """
 
 # LLM evaluator: response-grounding — checks if every claim in the response
-# is supported by the retrieved documents. A positive groundedness check.
-GROUNDING_PROMPT = """You are evaluating whether an assistant's response is fully grounded in retrieved documents.
+# is supported by the retrieved context. A positive groundedness check.
+#
+# "Retrieved context" covers both unstructured KB chunks (from document
+# search) AND structured tool outputs (from SQL tools, date/time tools,
+# web search, etc.). Each retrieval block is prefixed with [tool_name]
+# so the judge can see which source produced which data.
+GROUNDING_PROMPT = """You are evaluating whether an assistant's response is fully grounded in the retrieved context.
+
+The retrieved context contains outputs from the tools the agent used to answer the question. Each block is prefixed with `[tool_name]` and may contain:
+- Unstructured document chunks (from knowledge base search, e.g. `[search_documents]`)
+- Structured data tables (from SQL tools, e.g. `[get_sales_by_model]`, `[get_sales_trends]`)
+- Other tool outputs (web search, date/time, etc.)
 
 Rules for grounding:
-- EVERY factual claim in the response must be directly supported by the retrieved documents
-- Numbers, dates, names, and specifications must appear in the retrievals
-- General phrases like "according to the documentation" are fine as long as the underlying facts come from the retrievals
+- EVERY factual claim in the response must be directly supported by the retrieved context
+- Numbers, dates, names, sales figures, and specifications must appear in the retrievals (whether in document chunks OR in structured data tables)
+- SQL result tables count as valid grounding — if the response says "RAV4 sold 6763 units in Germany" and the SQL output contains `RAV4 | Germany | 6763`, that IS grounded
+- General phrases like "according to the documentation" or "based on the sales data" are fine as long as the underlying facts come from the retrievals
 - Apologies, clarifying questions, and non-factual content are always grounded
 
 A response is GROUNDED (true) when all factual claims are supported.
-A response is UNGROUNDED (false) when one or more factual claims come from outside the retrieved documents.
+A response is UNGROUNDED (false) when one or more factual claims come from outside the retrieved context.
 
 [QUESTION]
 {{log.input}}
 
-[RETRIEVED DOCUMENTS]
+[RETRIEVED CONTEXT]
 {{log.retrievals}}
 
 [RESPONSE]
@@ -108,26 +119,32 @@ Return ONLY `1` if the response is GROUNDED, `0` if UNGROUNDED. No prose, no exp
 """
 
 # LLM evaluator: hallucination-check — the negative framing. Looks for
-# contradictions or unsupported claims vs the retrievals.
-HALLUCINATION_PROMPT = """You are checking an assistant's response for hallucinations against retrieved documents.
+# contradictions or unsupported claims vs the retrieved context (KB + SQL).
+HALLUCINATION_PROMPT = """You are checking an assistant's response for hallucinations against the retrieved context.
+
+The retrieved context contains outputs from the tools the agent used to answer the question. Each block is prefixed with `[tool_name]` and may contain:
+- Unstructured document chunks (from knowledge base search, e.g. `[search_documents]`)
+- Structured data tables (from SQL tools, e.g. `[get_sales_by_model]`, `[get_sales_trends]`)
+- Other tool outputs (web search, date/time, etc.)
 
 A hallucination is:
-- A factual claim that contradicts the retrieved documents
-- A factual claim that has no basis in the retrieved documents
+- A factual claim that contradicts the retrieved context
+- A factual claim that has no basis in the retrieved context
 - A specific number, date, or name that was invented rather than retrieved
 
 Not hallucinations:
-- Rephrasing or summarizing information that IS in the retrievals
+- Rephrasing or summarizing information that IS in the retrievals (whether in document chunks OR in structured SQL data tables)
 - Clarifying questions and polite acknowledgments
 - Statements like "I don't have that information" when appropriate
+- Quoting figures directly from SQL result tables
 
 A response is CLEAN (true) when it has zero hallucinations.
-A response has HALLUCINATIONS (false) when at least one claim is contradicted by or absent from the retrievals.
+A response has HALLUCINATIONS (false) when at least one claim is contradicted by or absent from the retrieved context.
 
 [QUESTION]
 {{log.input}}
 
-[RETRIEVED DOCUMENTS]
+[RETRIEVED CONTEXT]
 {{log.retrievals}}
 
 [RESPONSE]
@@ -437,11 +454,32 @@ def _create_llm_evaluator(
     prompt: str,
     model: str = PROMPT_MODEL,
 ) -> str:
-    """Create an LLM evaluator via raw HTTP with the required `mode: single` field."""
+    """Create or update an LLM evaluator.
+
+    If an evaluator with the same key already exists AND its prompt matches
+    the provided one, reuse it as-is. If the prompt has changed (this repo
+    iterated on it), PATCH the evaluator in place so the Studio reflects
+    the latest version — idempotent and non-destructive.
+    """
     existing = _paginate(api_key, "/evaluators", lambda e: e.get("key") == key)
     if existing:
         eval_id = _id(existing)
-        print(f"  → reusing existing {key} evaluator: {eval_id}")
+        if existing.get("prompt") == prompt:
+            print(f"  → reusing existing {key} evaluator: {eval_id}")
+            return eval_id
+
+        # Prompt drift — update in place
+        patch_response = httpx.patch(
+            f"{API_BASE}/evaluators/{eval_id}",
+            headers=_headers(api_key),
+            json={"prompt": prompt},
+            timeout=15.0,
+        )
+        if patch_response.status_code >= 400:
+            raise RuntimeError(
+                f"Failed to update prompt on {key}: {patch_response.text}"
+            )
+        print(f"  → updated prompt on existing {key} evaluator: {eval_id}")
         return eval_id
 
     payload = {

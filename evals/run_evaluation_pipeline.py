@@ -72,6 +72,37 @@ def extract_tools_from_messages(messages: List[Any]) -> List[str]:
     return tools_called
 
 
+def extract_tool_outputs_from_messages(messages: List[Any]) -> List[str]:
+    """Extract ToolMessage content strings from the conversation history.
+
+    This captures everything the agent saw as tool results — KB search
+    chunks, SQL query results, date/time tool outputs, etc. — labeled by
+    tool name so the grounding / hallucination judges can evaluate the
+    response against ALL retrieved context, not just KB documents.
+    """
+    outputs: List[str] = []
+    for message in messages:
+        # ToolMessage has both `name` and `tool_call_id`
+        if not (hasattr(message, "name") and hasattr(message, "tool_call_id")):
+            continue
+        content = getattr(message, "content", None)
+        if not content:
+            continue
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            # Multi-part content — concatenate text parts
+            text = "\n".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            text = str(content)
+        tool_name = getattr(message, "name", "tool")
+        outputs.append(f"[{tool_name}]\n{text}")
+    return outputs
+
+
 @job("hybrid-data-agent")
 async def hybrid_data_agent_job(data: DataPoint, row: int):
     """Run the Hybrid Data Agent with a question and return the result."""
@@ -94,12 +125,12 @@ async def hybrid_data_agent_job(data: DataPoint, row: int):
     response = result["messages"][-1].content
     tools_called = extract_tools_from_messages(result["messages"])
 
-    # Capture retrievals for grounding / hallucination scorers. The final
-    # state includes retrieved_documents from the search_documents tool.
-    retrieved_docs = result.get("retrieved_documents") or []
-    retrievals = [
-        doc.page_content for doc in retrieved_docs if hasattr(doc, "page_content")
-    ]
+    # Capture retrievals for grounding / hallucination scorers. We use all
+    # tool outputs (KB search chunks, SQL query results, etc.) rather than
+    # just state.retrieved_documents — this way the evaluator sees every
+    # source the agent actually grounded its response in, regardless of
+    # whether it came from the KB or SQL.
+    retrievals = extract_tool_outputs_from_messages(result["messages"])
 
     return {
         "response": response,
