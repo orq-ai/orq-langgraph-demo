@@ -159,67 +159,9 @@ hallucination_scorer = _make_scorer(
 )
 
 
-async def source_citations_scorer(params: Dict[str, Any]) -> EvaluationResult:
-    """Check if the agent response contains at least one source URL.
-
-    Wraps the `source-citations-present` Python evaluator managed in the
-    orq.ai Studio. Returns PASS if the evaluator returned True, FAIL otherwise.
-
-    Reads `ORQ_SOURCE_CITATIONS_EVALUATOR_ID` from env. Skips silently (as a
-    PASS) if the ID is not configured so the eval pipeline still runs.
-    """
-    evaluator_id = os.environ.get("ORQ_SOURCE_CITATIONS_EVALUATOR_ID")
-    if not evaluator_id:
-        return EvaluationResult(
-            value=True,
-            pass_=True,
-            explanation="ORQ_SOURCE_CITATIONS_EVALUATOR_ID not set — scorer skipped",
-        )
-
-    output = params["output"]
-    response_text = output.get("response", "") if isinstance(output, dict) else str(output)
-    query = ""
-    data = params.get("data")
-    if data is not None:
-        try:
-            query = data.inputs.get("question", "") or ""
-        except AttributeError:
-            pass
-
-    try:
-        body = await _invoke_orq_evaluator(
-            evaluator_id,
-            output=response_text,
-            query=query,
-        )
-    except Exception as e:
-        return EvaluationResult(
-            value=False,
-            pass_=False,
-            explanation=f"evaluator invocation failed: {e}",
-        )
-
-    # Response shape is {"type": "boolean", "value": true/false}
-    # or for LLM-wrapped evaluators: {"value": {"value": true/false, "explanation": "..."}}
-    value = body.get("value")
-    explanation = ""
-    if isinstance(value, dict):
-        explanation = value.get("explanation", "") or ""
-        value = value.get("value")
-
-    if value is True:
-        return EvaluationResult(
-            value=True, pass_=True, explanation=explanation or "source URL found"
-        )
-    if value is False:
-        return EvaluationResult(
-            value=False,
-            pass_=False,
-            explanation=explanation or "no source URL in the response",
-        )
-
-    return EvaluationResult(
-        value=False,
-        pass_=False,
-        explanation=f"unexpected evaluator response shape: {body}",
-    )
+source_citations_scorer = _make_scorer(
+    env_var="ORQ_SOURCE_CITATIONS_EVALUATOR_ID",
+    name="source-citations-present",
+    positive_label="source attribution present",
+    negative_label="factual claim made without source attribution",
+)
