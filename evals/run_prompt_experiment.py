@@ -45,7 +45,11 @@ from langchain_core.messages import HumanMessage  # noqa: E402
 
 from assistant.prompts import fetch_prompt_by_id  # noqa: E402
 from core.settings import settings  # noqa: E402
-from orq_scorers import source_citations_scorer  # noqa: E402
+from orq_scorers import (  # noqa: E402
+    grounding_scorer,
+    hallucination_scorer,
+    source_citations_scorer,
+)
 
 
 # Filled in by main() before the jobs run
@@ -93,12 +97,19 @@ async def _run_agent_with_prompt(
     response = result["messages"][-1].content
     tools_called = extract_tools_from_messages(result["messages"])
 
+    # Capture retrievals for grounding / hallucination scorers
+    retrieved_docs = result.get("retrieved_documents") or []
+    retrievals = [
+        doc.page_content for doc in retrieved_docs if hasattr(doc, "page_content")
+    ]
+
     return {
         "variant": variant_label,
         "response": response,
         "tools_called": tools_called,
         "expected_tools": expected_tools,
         "category": category,
+        "retrievals": retrievals,
     }
 
 
@@ -115,7 +126,10 @@ async def variant_b_job(data: DataPoint, row: int):
 
 
 async def tool_accuracy_scorer(params) -> EvaluationResult:
-    """PASS if all expected tools were called (extra tools are allowed)."""
+    """True if all expected tools were called (extra tools are allowed).
+
+    Returns a boolean so the orq.ai Studio color-codes the cell green/red.
+    """
     output = params["output"]
     expected_tools = set(output.get("expected_tools", []))
     actual_tools = set(output.get("tools_called", []))
@@ -124,13 +138,13 @@ async def tool_accuracy_scorer(params) -> EvaluationResult:
 
     if expected_tools == actual_tools:
         return EvaluationResult(
-            value="PASS", pass_=True, explanation="Perfect tool match"
+            value=True, pass_=True, explanation="Perfect tool match"
         )
 
     if expected_present:
         extra = len(actual_tools) - len(expected_tools)
         return EvaluationResult(
-            value="PASS",
+            value=True,
             pass_=True,
             explanation=f"All {len(expected_tools)} expected tools present (+{extra} extra)",
         )
@@ -138,36 +152,13 @@ async def tool_accuracy_scorer(params) -> EvaluationResult:
     if expected_tools.intersection(actual_tools):
         overlap = len(expected_tools.intersection(actual_tools))
         return EvaluationResult(
-            value="FAIL",
+            value=False,
             pass_=False,
             explanation=f"Partial match: {overlap}/{len(expected_tools)} expected tools present",
         )
 
     return EvaluationResult(
-        value="FAIL", pass_=False, explanation="No expected tools present"
-    )
-
-
-async def category_accuracy_scorer(params) -> EvaluationResult:
-    """PASS if all expected tools were called, annotated with the category."""
-    output = params["output"]
-    category = output.get("category", "unknown")
-    expected_tools = set(output.get("expected_tools", []))
-    actual_tools = set(output.get("tools_called", []))
-
-    expected_present = expected_tools.issubset(actual_tools)
-    if expected_present:
-        return EvaluationResult(
-            value="PASS",
-            pass_=True,
-            explanation=f"Category '{category}': all expected tools present",
-        )
-
-    overlap = len(expected_tools.intersection(actual_tools)) if expected_tools else 0
-    return EvaluationResult(
-        value="FAIL",
-        pass_=False,
-        explanation=f"Category '{category}': {overlap}/{len(expected_tools)} tools matched",
+        value=False, pass_=False, explanation="No expected tools present"
     )
 
 
@@ -223,8 +214,9 @@ async def run_experiment() -> None:
         jobs=[variant_a_job, variant_b_job],
         evaluators=[
             {"name": "tool-accuracy", "scorer": tool_accuracy_scorer},
-            {"name": "category-accuracy", "scorer": category_accuracy_scorer},
             {"name": "source-citations", "scorer": source_citations_scorer},
+            {"name": "response-grounding", "scorer": grounding_scorer},
+            {"name": "hallucination-check", "scorer": hallucination_scorer},
         ],
         path=settings.ORQ_PROJECT_NAME,
         description="A/B test: default vs concise system prompt",

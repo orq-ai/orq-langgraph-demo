@@ -153,22 +153,45 @@ Results available in orq.ai Studio: https://my.orq.ai/experiments
 
 ## Evaluation Metrics
 
-Both scorers return a **PASS/FAIL** verdict (via `EvaluationResult(value="PASS"|"FAIL", pass_=bool)`)
-so evaluatorq can exit non-zero on any failure for CI/CD gating.
+Each scorer returns `EvaluationResult(value=<bool>, pass_=<bool>, explanation=...)`.
+The boolean `value` makes the orq.ai Studio color-code experiment cells
+green/red, and `pass_` lets evaluatorq exit non-zero on any failure for
+CI/CD gating.
 
-### 1. Tool Accuracy Scorer
+### 1. Tool Accuracy Scorer (local)
 
-- **PASS**: All expected tools were called (additional tools are allowed)
-- **FAIL**: One or more expected tools are missing
+- **True** (green): All expected tools were called (additional tools are allowed)
+- **False** (red): One or more expected tools are missing
 
-### 2. Category Accuracy Scorer
+Defined in `evals/run_evaluation_pipeline.py` — stays local because it needs
+the agent's `tools_called` output field which isn't part of the standard
+orq.ai Python evaluator log surface.
 
-Same PASS/FAIL verdict as `tool-accuracy`, but annotated with the question
-category in the explanation so results can be grouped in the orq.ai UI:
+### 2. Source Citations (orq.ai Python evaluator)
 
-- **SQL-only queries**: Database query accuracy
-- **Document-only queries**: Document search accuracy
-- **Mixed queries**: Combined SQL + document accuracy
+- **True** (green): Response contains at least one `https?://` URL
+- **False** (red): No source URL
+
+Registered as a workspace Python evaluator `source-citations-present`
+(created by `make setup-workspace`). Invoked via `orq_scorers.py`.
+
+### 3. Response Grounding (orq.ai LLM evaluator)
+
+- **True** (green): All claims in the response are supported by the retrieved docs
+- **False** (red): The response makes claims not present in the retrievals
+
+Registered as a workspace LLM evaluator `response-grounding`. This scorer
+needs the retrievals to work, so the job captures `state.retrieved_documents`
+and passes them to the evaluator via `orq_scorers.py`.
+
+### 4. Hallucination Check (orq.ai LLM evaluator)
+
+- **True** (green): Response contains no contradictions or unsupported claims vs retrievals
+- **False** (red): At least one contradiction or fabrication found
+
+Registered as a workspace LLM evaluator `hallucination-check`. Complements
+grounding (grounding = "everything is supported", hallucination = "nothing is
+contradicted"). Same retrievals plumbing as the grounding scorer.
 
 ## Viewing Results
 

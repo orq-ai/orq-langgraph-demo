@@ -45,6 +45,8 @@ PROMPT_KEY = "hybrid-data-agent-system-prompt"
 PROMPT_KEY_VARIANT_B = "hybrid-data-agent-system-prompt-variant-b"
 SAFETY_EVAL_KEY = "hybrid-data-agent-safety"
 SOURCE_CITATIONS_EVAL_KEY = "source-citations-present"
+GROUNDING_EVAL_KEY = "response-grounding"
+HALLUCINATION_EVAL_KEY = "hallucination-check"
 AGENT_KEY = "hybrid-data-agent-managed"
 DATASET_KEY = "hybrid-data-agent-tool-calling-evals"
 DATASET_JSONL = "evals/datasets/tool_calling_evals.jsonl"
@@ -64,6 +66,60 @@ def evaluate(log):
 
     # Must have at least 1 source URL
     return len(urls) >= 1
+"""
+
+# LLM evaluator: response-grounding — checks if every claim in the response
+# is supported by the retrieved documents. A positive groundedness check.
+GROUNDING_PROMPT = """You are evaluating whether an assistant's response is fully grounded in retrieved documents.
+
+Rules for grounding:
+- EVERY factual claim in the response must be directly supported by the retrieved documents
+- Numbers, dates, names, and specifications must appear in the retrievals
+- General phrases like "according to the documentation" are fine as long as the underlying facts come from the retrievals
+- Apologies, clarifying questions, and non-factual content are always grounded
+
+A response is GROUNDED (true) when all factual claims are supported.
+A response is UNGROUNDED (false) when one or more factual claims come from outside the retrieved documents.
+
+[QUESTION]
+{{log.input}}
+
+[RETRIEVED DOCUMENTS]
+{{log.retrievals}}
+
+[RESPONSE]
+{{log.output}}
+
+Return ONLY `1` if the response is GROUNDED, `0` if UNGROUNDED. No prose, no explanation.
+"""
+
+# LLM evaluator: hallucination-check — the negative framing. Looks for
+# contradictions or unsupported claims vs the retrievals.
+HALLUCINATION_PROMPT = """You are checking an assistant's response for hallucinations against retrieved documents.
+
+A hallucination is:
+- A factual claim that contradicts the retrieved documents
+- A factual claim that has no basis in the retrieved documents
+- A specific number, date, or name that was invented rather than retrieved
+
+Not hallucinations:
+- Rephrasing or summarizing information that IS in the retrievals
+- Clarifying questions and polite acknowledgments
+- Statements like "I don't have that information" when appropriate
+
+A response is CLEAN (true) when it has zero hallucinations.
+A response has HALLUCINATIONS (false) when at least one claim is contradicted by or absent from the retrievals.
+
+[QUESTION]
+{{log.input}}
+
+[RETRIEVED DOCUMENTS]
+{{log.retrievals}}
+
+[RESPONSE]
+{{log.output}}
+
+Return ONLY `1` if the response is CLEAN, `0` if it contains HALLUCINATIONS. No prose, no explanation.
 """
 
 AGENT_INSTRUCTIONS = """You are an AI assistant for Toyota and Lexus vehicle information, focused on documents (manuals, warranties, contracts).
@@ -185,7 +241,7 @@ def setup_project(api_key: str, name: str) -> None:
     The `/projects` endpoint returns a flat array (not paginated), so we don't
     reuse `_paginate` here.
     """
-    print(f"\n[1/8] Project '{name}'")
+    print(f"\n[1/10] Project '{name}'")
 
     response = _get(api_key, "/projects")
     response.raise_for_status()
@@ -212,7 +268,7 @@ def setup_project(api_key: str, name: str) -> None:
 
 def setup_knowledge_base(api_key: str, path: str) -> str:
     """Find or create the Knowledge Base. Returns its ID."""
-    print(f"\n[2/8] Knowledge Base '{KB_KEY}'")
+    print(f"\n[2/10] Knowledge Base '{KB_KEY}'")
 
     existing = _paginate(api_key, "/knowledge", lambda kb: kb.get("key") == KB_KEY)
     if existing:
@@ -274,7 +330,7 @@ def _create_prompt(
 
 def setup_system_prompt(api_key: str, path: str) -> str:
     """Find or create the default system prompt. Returns its ID."""
-    print(f"\n[3/8] System prompt '{PROMPT_KEY}'")
+    print(f"\n[3/10] System prompt '{PROMPT_KEY}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
@@ -297,7 +353,7 @@ def setup_system_prompt(api_key: str, path: str) -> str:
 
 def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
     """Find or create the 'variant B' system prompt used for A/B testing. Returns its ID."""
-    print(f"\n[4/8] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
+    print(f"\n[4/10] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B
@@ -325,7 +381,7 @@ def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
 
 def setup_safety_evaluator(api_key: str, path: str) -> str:
     """Find or create the LLM safety evaluator used as an input guardrail. Returns its ID."""
-    print(f"\n[5/8] Safety evaluator '{SAFETY_EVAL_KEY}'")
+    print(f"\n[5/10] Safety evaluator '{SAFETY_EVAL_KEY}'")
 
     existing = _paginate(
         api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY
@@ -359,6 +415,64 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
     return eval_id
 
 
+def _create_llm_evaluator(
+    api_key: str,
+    key: str,
+    path: str,
+    description: str,
+    prompt: str,
+    model: str = PROMPT_MODEL,
+) -> str:
+    """Create an LLM evaluator via raw HTTP with the required `mode: single` field."""
+    existing = _paginate(api_key, "/evaluators", lambda e: e.get("key") == key)
+    if existing:
+        eval_id = _id(existing)
+        print(f"  → reusing existing {key} evaluator: {eval_id}")
+        return eval_id
+
+    payload = {
+        "type": "llm_eval",
+        "key": key,
+        "path": path,
+        "description": description,
+        "mode": "single",
+        "model": model,
+        "prompt": prompt,
+        "repetitions": 1,
+    }
+    response = _post(api_key, "/evaluators", payload)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Failed to create LLM evaluator '{key}': {response.text}")
+    body = response.json()
+    eval_id = _id(body)
+    print(f"  → created new {key} evaluator: {eval_id}")
+    return eval_id
+
+
+def setup_grounding_evaluator(api_key: str, path: str) -> str:
+    """Find or create the response-grounding LLM evaluator."""
+    print(f"\n[7/10] Grounding evaluator '{GROUNDING_EVAL_KEY}'")
+    return _create_llm_evaluator(
+        api_key,
+        GROUNDING_EVAL_KEY,
+        path,
+        "Checks that every factual claim in the response is supported by the retrieved documents",
+        GROUNDING_PROMPT,
+    )
+
+
+def setup_hallucination_evaluator(api_key: str, path: str) -> str:
+    """Find or create the hallucination-check LLM evaluator."""
+    print(f"\n[8/10] Hallucination evaluator '{HALLUCINATION_EVAL_KEY}'")
+    return _create_llm_evaluator(
+        api_key,
+        HALLUCINATION_EVAL_KEY,
+        path,
+        "Checks the response for contradictions or fabricated claims vs the retrieved documents",
+        HALLUCINATION_PROMPT,
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Source citations evaluator (used in evaluatorq eval pipeline)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -366,7 +480,7 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
 
 def setup_source_citations_evaluator(api_key: str, path: str) -> str:
     """Find or create the Python evaluator that checks for source URLs in responses."""
-    print(f"\n[6/8] Source citations evaluator '{SOURCE_CITATIONS_EVAL_KEY}'")
+    print(f"\n[6/10] Source citations evaluator '{SOURCE_CITATIONS_EVAL_KEY}'")
 
     existing = _paginate(
         api_key, "/evaluators", lambda e: e.get("key") == SOURCE_CITATIONS_EVAL_KEY
@@ -407,7 +521,7 @@ def setup_managed_agent(api_key: str, path: str, kb_id: str) -> str:
     sample data, but orchestrated entirely via the orq.ai platform instead of
     Python code. See docs/comparing-approaches.md for the full rundown.
     """
-    print(f"\n[7/8] Managed Agent '{AGENT_KEY}'")
+    print(f"\n[9/10] Managed Agent '{AGENT_KEY}'")
 
     # Agents list endpoint returns data at top-level or under "data" depending
     # on workspace. Use the paginator like other lookups.
@@ -478,7 +592,7 @@ def _load_datapoints() -> List[Dict[str, Any]]:
 
 def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
-    print(f"\n[8/8] Evaluation dataset '{DATASET_KEY}'")
+    print(f"\n[10/10] Evaluation dataset '{DATASET_KEY}'")
 
     existing = _paginate(
         api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY
@@ -534,6 +648,8 @@ def main() -> int:
         prompt_id_variant_b = setup_system_prompt_variant_b(api_key, project_path)
         safety_eval_id = setup_safety_evaluator(api_key, project_path)
         source_citations_eval_id = setup_source_citations_evaluator(api_key, project_path)
+        grounding_eval_id = setup_grounding_evaluator(api_key, project_path)
+        hallucination_eval_id = setup_hallucination_evaluator(api_key, project_path)
         agent_id = setup_managed_agent(api_key, project_path, kb_id)
         dataset_id = setup_dataset(api_key, project_path)
     except Exception as e:
@@ -555,6 +671,8 @@ def main() -> int:
     print(f'ORQ_SYSTEM_PROMPT_ID_VARIANT_B="{prompt_id_variant_b}"')
     print(f'ORQ_SAFETY_EVALUATOR_ID="{safety_eval_id}"')
     print(f'ORQ_SOURCE_CITATIONS_EVALUATOR_ID="{source_citations_eval_id}"')
+    print(f'ORQ_GROUNDING_EVALUATOR_ID="{grounding_eval_id}"')
+    print(f'ORQ_HALLUCINATION_EVALUATOR_ID="{hallucination_eval_id}"')
     print(f'ORQ_MANAGED_AGENT_KEY="{AGENT_KEY}"')
     print(f"# Dataset ID (not read by the app, informational only):")
     print(f"# ORQ_DATASET_ID={dataset_id}")

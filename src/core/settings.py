@@ -61,6 +61,18 @@ class Settings(BaseSettings):
         env="ORQ_SOURCE_CITATIONS_EVALUATOR_ID",
     )
 
+    ORQ_GROUNDING_EVALUATOR_ID: str = Field(
+        default="",
+        description="orq.ai evaluator ID for the response-grounding LLM evaluator (checks every claim is in retrievals)",
+        env="ORQ_GROUNDING_EVALUATOR_ID",
+    )
+
+    ORQ_HALLUCINATION_EVALUATOR_ID: str = Field(
+        default="",
+        description="orq.ai evaluator ID for the hallucination-check LLM evaluator (checks for contradictions vs retrievals)",
+        env="ORQ_HALLUCINATION_EVALUATOR_ID",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",
