@@ -373,30 +373,84 @@ class OrqPDFIngestionPipeline:
         )
         return results
 
-    def verify_ingestion(self, sample_queries: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Verify ingestion by performing test searches via orq.ai."""
+    def verify_ingestion(
+        self,
+        sample_queries: Optional[List[str]] = None,
+        wait_for_embedding: bool = True,
+        max_wait_seconds: int = 120,
+    ) -> Dict[str, Any]:
+        """Verify ingestion by performing test searches via orq.ai.
+
+        orq.ai embeds chunks asynchronously after upload, so a fresh ingestion
+        needs a brief wait before search can return results. This helper polls
+        a single query until it either returns matches or hits the timeout.
+
+        Uses raw HTTP instead of the SDK's `client.knowledge.search()` because
+        the installed SDK's search wrapper is out of sync with the API:
+        - it doesn't pass `retrieval_config.type` (required by the API)
+        - it doesn't pass `search_options.include_metadata/include_scores`
+        - its response model expects `documents` but the API returns `matches`
+        """
+        import time
+
         if sample_queries is None:
             sample_queries = [
-                "Toyota",
-                "warranty",
-                "contract terms",
-                "Lexus",
-                "vehicle maintenance",
+                "Toyota warranty policy",
+                "Lexus contract terms",
+                "vehicle maintenance requirements",
+                "warranty coverage period",
             ]
+
+        def run_search(query: str) -> List[Dict[str, Any]]:
+            headers = {
+                "Authorization": f"Bearer {self.orq_api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "query": query,
+                "retrieval_config": {"type": "hybrid_search", "top_k": 3},
+                "search_options": {"include_metadata": True, "include_scores": True},
+            }
+            response = httpx.post(
+                f"https://api.orq.ai/v2/knowledge/{self.knowledge_base_id}/search",
+                headers=headers,
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json().get("matches") or []
+
+        # Wait for chunks to finish embedding. Poll the first query until
+        # results come back or we hit the timeout.
+        if wait_for_embedding and sample_queries:
+            probe_query = sample_queries[0]
+            start = time.time()
+            logger.info(f"Waiting for chunks to finish embedding (probe: '{probe_query}')")
+            while time.time() - start < max_wait_seconds:
+                try:
+                    matches = run_search(probe_query)
+                    if matches:
+                        elapsed = int(time.time() - start)
+                        logger.info(f"Chunks ready after {elapsed}s")
+                        break
+                except Exception as e:
+                    logger.debug(f"Probe query failed (likely still embedding): {e}")
+                time.sleep(5)
+            else:
+                logger.warning(
+                    f"Still no matches after {max_wait_seconds}s — chunks may still be "
+                    f"embedding in the background. Check the orq.ai Studio."
+                )
 
         verification_results: Dict[str, Any] = {"search_tests": []}
 
         for query in sample_queries:
             try:
-                response = self.client.knowledge.search(
-                    knowledge_id=self.knowledge_base_id,
-                    query=query,
-                )
-                matches = getattr(response, "matches", None) or []
+                matches = run_search(query)
                 sample_content = None
                 if matches:
                     first = matches[0]
-                    text = getattr(first, "text", None) or getattr(first, "content", None) or ""
+                    text = first.get("text") or ""
                     sample_content = text[:200] + "..." if text else None
 
                 verification_results["search_tests"].append(
