@@ -19,17 +19,23 @@ import sys
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from evaluatorq import DataPoint, DatasetIdInput, EvaluationResult, evaluatorq, job
-from langchain_core.messages import HumanMessage
 
 # Add the project root to Python path so we can import the assistant module
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
 sys.path.insert(0, project_root)
 
-# load environment variables
+# Load environment variables and set up OTEL tracing BEFORE importing
+# langchain/langgraph/evaluatorq so the LangSmith OTEL hooks register correctly
+# and produce the full nested LangGraph trace tree in orq.ai.
 load_dotenv()
+from assistant.tracing import setup_tracing  # noqa: E402
 
-from core.settings import settings
+setup_tracing()
+
+from evaluatorq import DataPoint, DatasetIdInput, EvaluationResult, evaluatorq, job  # noqa: E402
+from langchain_core.messages import HumanMessage  # noqa: E402
+
+from core.settings import settings  # noqa: E402
 
 
 def extract_tools_from_messages(messages: List[Any]) -> List[str]:
