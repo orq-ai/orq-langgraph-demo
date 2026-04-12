@@ -1,4 +1,4 @@
-"""SQL query templates and parameter validation for the RAG Assistant.
+"""SQL query templates and parameter validation for the Hybrid Data Agent.
 
 This module contains the predefined SQL query templates and simple parameter validation
 for secure database operations.

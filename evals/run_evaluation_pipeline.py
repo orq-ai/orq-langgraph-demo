@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Run evaluation pipeline against the RAG assistant using orq.ai evaluatorq.
+Run evaluation pipeline against the Hybrid Data Agent using orq.ai evaluatorq.
 
-This script runs your RAG assistant against a dataset
+This script runs your Hybrid Data Agent against a dataset
 and tracks evaluation metrics via orq.ai experiments.
 
 Usage:
@@ -67,9 +67,9 @@ def extract_tools_from_messages(messages: List[Any]) -> List[str]:
     return tools_called
 
 
-@job("rag-assistant")
-async def rag_assistant_job(data: DataPoint, row: int):
-    """Run the RAG assistant with a question and return the result."""
+@job("hybrid-data-agent")
+async def hybrid_data_agent_job(data: DataPoint, row: int):
+    """Run the Hybrid Data Agent with a question and return the result."""
     from assistant.context import Context
     from assistant.graph import graph
 
@@ -154,7 +154,7 @@ async def category_accuracy_scorer(params) -> EvaluationResult:
 
 def load_datapoints_from_file() -> List[DataPoint]:
     """Load DataPoints from the local JSONL file."""
-    filename = os.path.join(os.path.dirname(__file__), "datasets/toyota_assistant_tool_calling_evals.jsonl")
+    filename = os.path.join(os.path.dirname(__file__), "datasets/tool_calling_evals.jsonl")
     if not os.path.exists(filename):
         raise FileNotFoundError(f"Dataset file not found: {filename}")
 
@@ -171,7 +171,7 @@ def load_datapoints_from_file() -> List[DataPoint]:
 async def run_evaluation(dataset_id: str = None, from_file: bool = False):
     """Run evaluation experiment."""
 
-    print("RAG Assistant Evaluation Pipeline (orq.ai)")
+    print("Hybrid Data Agent Evaluation Pipeline (orq.ai)")
     print("=" * 50)
 
     if from_file:
@@ -188,9 +188,9 @@ async def run_evaluation(dataset_id: str = None, from_file: bool = False):
     print("Starting evaluation...")
 
     await evaluatorq(
-        "rag-assistant-tool-calling-eval",
+        "hybrid-data-agent-tool-calling-eval",
         data=data,
-        jobs=[rag_assistant_job],
+        jobs=[hybrid_data_agent_job],
         evaluators=[
             {"name": "tool-accuracy", "scorer": tool_accuracy_scorer},
             {"name": "category-accuracy", "scorer": category_accuracy_scorer},
@@ -205,7 +205,7 @@ async def run_evaluation(dataset_id: str = None, from_file: bool = False):
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Run evaluations against the RAG assistant using orq.ai evaluatorq",
+        description="Run evaluations against the Hybrid Data Agent using orq.ai evaluatorq",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 Examples:

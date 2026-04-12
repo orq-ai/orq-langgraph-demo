@@ -1,6 +1,7 @@
 """RAG tools for document search and SQL queries.
 
-Uses ChromaDB for semantic document search and SQLite for structured data queries.
+Uses orq.ai Knowledge Base for semantic document search and SQLite for
+structured data queries.
 """
 
 import logging
@@ -8,9 +9,9 @@ import os
 import sqlite3
 from typing import Any, Callable, Dict, List, Optional
 
-from langchain_chroma import Chroma
+import httpx
 from langchain_core.tools import tool
-from langchain_openai import OpenAIEmbeddings
+from orq_ai_sdk import Orq
 
 from core.settings import settings
 
@@ -20,70 +21,81 @@ from .sql_tools import INDIVIDUAL_SQL_TOOLS
 logger = logging.getLogger(__name__)
 
 
-# Global variables for lazy initialization
-vectorstore = None
+# Global orq.ai client for lazy initialization
+_orq_client: Optional[Orq] = None
 
 
-def _get_vectorstore() -> Optional[Chroma]:
-    """Lazy initialization of ChromaDB vectorstore with support for both local and cloud."""
-    global vectorstore
+def _get_orq_client() -> Optional[Orq]:
+    """Lazy initialization of the orq.ai client."""
+    global _orq_client
+    if _orq_client is not None:
+        return _orq_client
 
-    if vectorstore is not None:
-        return vectorstore
-
-    try:
-        # Initialize embeddings
-        embeddings = OpenAIEmbeddings(
-            model=settings.EMBEDDING_MODEL, openai_api_key=os.environ.get("OPENAI_API_KEY")
-        )
-
-        if settings.CHROMA_API_KEY and settings.CHROMA_API_KEY.strip():
-            # Use ChromaDB Cloud
-            logger.info("Connecting to ChromaDB Cloud...")
-            import chromadb
-
-            chroma_client = chromadb.CloudClient(
-                api_key=settings.CHROMA_API_KEY,
-                tenant=settings.CHROMA_TENANT_ID,
-                database=settings.CHROMA_DATABASE_NAME,
-            )
-
-            vectorstore = Chroma(
-                client=chroma_client,
-                collection_name=settings.CHROMA_COLLECTION_NAME,
-                embedding_function=embeddings,
-            )
-            logger.info(
-                f"Connected to ChromaDB Cloud - collection: {settings.CHROMA_COLLECTION_NAME}"
-            )
-
-        else:
-            # Use local ChromaDB
-            if not settings.CHROMA_DB_PATH.exists():
-                logger.warning(f"Local ChromaDB not found at {settings.CHROMA_DB_PATH}")
-                return None
-
-            vectorstore = Chroma(
-                collection_name=settings.CHROMA_COLLECTION_NAME,
-                embedding_function=embeddings,
-                persist_directory=str(settings.CHROMA_DB_PATH),
-            )
-            logger.info(f"Connected to local ChromaDB at {settings.CHROMA_DB_PATH}")
-
-        # Get document count for logging
-        try:
-            doc_count = vectorstore._collection.count()
-            logger.info(
-                f"ChromaDB collection '{settings.CHROMA_COLLECTION_NAME}' has {doc_count} documents"
-            )
-        except Exception as count_e:
-            logger.debug(f"Could not get document count: {count_e}")
-
-        return vectorstore
-
-    except Exception as e:
-        logger.warning(f"Failed to connect to ChromaDB: {e}")
+    api_key = os.environ.get("ORQ_API_KEY")
+    if not api_key:
+        logger.warning("ORQ_API_KEY not set — knowledge base search unavailable")
         return None
+
+    if not settings.ORQ_KNOWLEDGE_BASE_ID:
+        logger.warning(
+            "ORQ_KNOWLEDGE_BASE_ID not set — run the ingestion pipeline first and "
+            "set ORQ_KNOWLEDGE_BASE_ID in .env"
+        )
+        return None
+
+    _orq_client = Orq(api_key=api_key)
+    logger.info(f"orq.ai client initialized - KB: {settings.ORQ_KNOWLEDGE_BASE_ID}")
+    return _orq_client
+
+
+def _kb_search(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """
+    Call the orq.ai Knowledge Base search REST API directly.
+
+    Bypasses the SDK because the installed version's response model is out of
+    sync with the API (expects `knowledge_id`/`documents`/`query` fields,
+    the API returns `matches`).
+
+    Returns a list of match dicts with keys: id, text, metadata, score.
+    """
+    api_key = os.environ.get("ORQ_API_KEY")
+    url = f"https://api.orq.ai/v2/knowledge/{settings.ORQ_KNOWLEDGE_BASE_ID}/search"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    payload = {
+        "query": query,
+        "retrieval_config": {"type": "hybrid_search", "top_k": top_k},
+        "search_options": {"include_metadata": True, "include_scores": True},
+    }
+    response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
+    response.raise_for_status()
+    body = response.json()
+    return body.get("matches") or body.get("documents") or []
+
+
+def _match_to_search_result(match: Dict[str, Any]) -> SearchResult:
+    """Convert a raw KB search match dict to a SearchResult."""
+    metadata = match.get("metadata") or {}
+    scores = match.get("scores") or {}
+    # orq.ai returns scores as {"search_score": ..., "rerank_score": ...}
+    score_value = (
+        scores.get("rerank_score")
+        if scores.get("rerank_score") is not None
+        else scores.get("search_score")
+    )
+    if score_value is None:
+        score_value = match.get("score") or 0.0
+    return SearchResult(
+        filename=metadata.get("filename") or metadata.get("file_name") or "Unknown",
+        page=int(metadata.get("page_number") or 0),
+        chunk_index=int(metadata.get("chunk_index") or 0),
+        content=match.get("text") or "",
+        relevance_score=float(score_value),
+        chunk_id=metadata.get("chunk_id") or match.get("id") or "",
+    )
 
 
 def _get_sqlite_connection():
@@ -123,79 +135,46 @@ Returns:
     List of relevant document chunks with metadata including filename and page numbers for citation"""
 )
 def search_documents(query: str, limit: int = settings.MAX_SEARCH_RESULTS) -> List[SearchResult]:
-    vectorstore = _get_vectorstore()
-    if not vectorstore:
+    if _get_orq_client() is None:
         return []
     try:
-        # Use ChromaDB similarity search with scores
-        results_with_scores = vectorstore.similarity_search_with_score(query=query, k=limit)
-        search_results = []
-
-        for doc, score in results_with_scores:
-            # Extract metadata from the document
-            metadata = doc.metadata
-            result = SearchResult(
-                filename=metadata.get("filename", "Unknown"),
-                page=int(metadata.get("page_number", metadata.get("page", 0))),
-                chunk_index=int(metadata.get("chunk_index", 0)),
-                content=doc.page_content,
-                relevance_score=float(1.0 - score),  # Convert distance to similarity score
-                chunk_id=metadata.get("chunk_id", ""),
-            )
-            search_results.append(result)
-
-        logger.info(f"ChromaDB search found {len(search_results)} results for query: '{query}'")
-        return search_results
-
+        matches = _kb_search(query, top_k=limit)
+        results = [_match_to_search_result(m) for m in matches]
+        logger.info(f"orq.ai KB search found {len(results)} results for query: '{query}'")
+        return results
     except Exception as e:
-        logger.error(f"ChromaDB search error: {e}")
+        logger.error(f"orq.ai KB search error: {e}")
         return []
 
 
 @tool
 def list_available_documents() -> List[Dict[str, Any]]:
     """
-    List all available documents in the database with statistics.
+    List all available documents in the knowledge base.
+
     Returns:
-        List of document information including filename, pages, and chunks
+        List of document information including filename and datasource ID.
     """
-    vectorstore = _get_vectorstore()
-    if not vectorstore:
+    client = _get_orq_client()
+    if not client:
         return []
     try:
-        # Get a sample of documents to analyze metadata
-        sample_docs = vectorstore.similarity_search("document", k=100)  # Get larger sample
-
-        # Organize by filename
-        file_stats = {}
-        for doc in sample_docs:
-            metadata = doc.metadata
-            filename = metadata.get("filename", "Unknown")
-            page = metadata.get("page_number", metadata.get("page", 0))
-
-            if filename not in file_stats:
-                file_stats[filename] = {"pages": set(), "chunks": 0, "total_characters": 0}
-
-            file_stats[filename]["pages"].add(page)
-            file_stats[filename]["chunks"] += 1
-            file_stats[filename]["total_characters"] += len(doc.page_content)
-
-        # Convert to list format
-        documents = []
-        for filename, stats in file_stats.items():
-            doc_info = {
-                "filename": filename,
-                "pages": len(stats["pages"]),
-                "chunks": stats["chunks"],
-                "total_characters": stats["total_characters"],
+        response = client.knowledge.list_datasources(
+            knowledge_id=settings.ORQ_KNOWLEDGE_BASE_ID,
+            limit=50,
+        )
+        data = getattr(response, "data", []) or []
+        documents = [
+            {
+                "filename": getattr(ds, "display_name", None) or "Unknown",
+                "datasource_id": getattr(ds, "id", None) or getattr(ds, "_id", ""),
             }
-            documents.append(doc_info)
-
-        logger.info(f"Listed {len(documents)} available documents")
+            for ds in data
+        ]
+        logger.info(f"Listed {len(documents)} available documents from orq.ai KB")
         return documents
-
     except Exception as e:
-        logger.error(f"Error listing documents: {e}")
+        logger.error(f"Error listing documents from orq.ai KB: {e}")
         return []
 
 
@@ -213,42 +192,28 @@ Returns:
     List of relevant chunks from the specified document with page numbers for citation"""
 )
 def search_in_document(filename: str, query: str, limit: int = 3) -> List[SearchResult]:
-    vectorstore = _get_vectorstore()
-    if not vectorstore:
+    if _get_orq_client() is None:
         return []
     try:
-        # Get more results to filter by filename
-        results_with_scores = vectorstore.similarity_search_with_score(query=query, k=20)
+        # Fetch broader results and filter client-side by filename.
+        matches = _kb_search(query, top_k=20)
 
-        # Filter results by filename and take top matches
-        filtered_results = []
-        for doc, score in results_with_scores:
-            doc_filename = doc.metadata.get("filename", "")
+        filtered = []
+        for match in matches:
+            match_metadata = match.get("metadata") or {}
+            doc_filename = match_metadata.get("filename") or match_metadata.get("file_name") or ""
             if filename.lower() in doc_filename.lower() or doc_filename.lower() in filename.lower():
-                filtered_results.append((doc, score))
-                if len(filtered_results) >= limit:
+                filtered.append(match)
+                if len(filtered) >= limit:
                     break
 
-        search_results = []
-        for doc, score in filtered_results:
-            metadata = doc.metadata
-            result = SearchResult(
-                filename=metadata.get("filename", "Unknown"),
-                page=int(metadata.get("page_number", metadata.get("page", 0))),
-                chunk_index=int(metadata.get("chunk_index", 0)),
-                content=doc.page_content,
-                relevance_score=float(1.0 - score),  # Convert distance to similarity score
-                chunk_id=metadata.get("chunk_id", ""),
-            )
-            search_results.append(result)
-
+        results = [_match_to_search_result(m) for m in filtered]
         logger.info(
-            f"🔍 ChromaDB search found {len(search_results)} results in {filename} for query: '{query}'"
+            f"orq.ai KB search found {len(results)} results in {filename} for query: '{query}'"
         )
-        return search_results
-
+        return results
     except Exception as e:
-        logger.error(f"ChromaDB search error in document {filename}: {e}")
+        logger.error(f"orq.ai KB search error in document {filename}: {e}")
         return []
 
 
@@ -258,36 +223,3 @@ TOOLS: List[Callable[..., Any]] = [
     list_available_documents,
     search_in_document,
 ] + INDIVIDUAL_SQL_TOOLS  # Individual SQL tools for specific query types
-
-
-def get_vectorstore() -> Optional[Chroma]:
-    """
-    Get the ChromaDB vectorstore instance.
-
-    Returns:
-        ChromaDB vectorstore instance or None if not available
-    """
-    return _get_vectorstore()
-
-
-def get_collection_stats() -> Dict[str, Any]:
-    """
-    Get statistics about the ChromaDB collection.
-
-    Returns:
-        Dictionary containing collection statistics
-    """
-    vectorstore = _get_vectorstore()
-    if not vectorstore:
-        return {"error": "ChromaDB not available"}
-
-    try:
-        collection = vectorstore._collection
-        return {
-            "collection_name": settings.CHROMA_COLLECTION_NAME,
-            "total_documents": collection.count(),
-            "embedding_model": settings.EMBEDDING_MODEL,
-            "database_path": str(settings.CHROMA_DB_PATH),
-        }
-    except Exception as e:
-        return {"error": f"Failed to get collection stats: {e}"}

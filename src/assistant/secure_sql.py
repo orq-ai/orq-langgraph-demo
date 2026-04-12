@@ -1,4 +1,4 @@
-"""Secure SQL execution system with parameterized queries for the RAG Assistant.
+"""Secure SQL execution system with parameterized queries for the Hybrid Data Agent.
 
 This module provides a secure interface for SQL operations using predefined query templates
 and parameterized execution to prevent SQL injection attacks.

@@ -1,17 +1,16 @@
 """Utility & helper functions."""
 
 import csv
+import os
 from pathlib import Path
 from typing import Dict, List, Union
 
-from langchain.chat_models import init_chat_model
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_openai import ChatOpenAI
 
 from assistant.models import SearchResult
-
-import os
 
 def get_message_text(msg: BaseMessage) -> str:
     """Get the text content of a message."""
@@ -91,17 +90,26 @@ def load_starters_from_csv(csv_path: Union[Path, str]) -> List[Dict[str, str]]:
 
 
 def load_chat_model(fully_specified_name: str) -> BaseChatModel:
-    """Load a chat model from a fully specified name.
+    """Load a chat model via the orq.ai AI Router.
+
+    The router is OpenAI-protocol-compatible regardless of the underlying
+    provider, so we always use ChatOpenAI and pass the fully-specified
+    model name straight through. This means switching providers is a
+    single-line change in `.env`:
+
+        DEFAULT_MODEL="openai/gpt-4.1-mini"
+        DEFAULT_MODEL="anthropic/claude-sonnet-4-5"
+        DEFAULT_MODEL="groq/llama-3.3-70b-versatile"
+        DEFAULT_MODEL="google/gemini-2.5-flash"
+
+    The router handles provider dispatch, cost tracking, fallbacks, and retries.
 
     Args:
-        fully_specified_name (str): String in the format 'provider/model'.
+        fully_specified_name: Model identifier in `provider/model` format
+            (e.g. `openai/gpt-4.1-mini`).
     """
-    provider, model = fully_specified_name.split("/", maxsplit=1)
-    # Route LLM calls through the orq.ai AI Router for cost tracking,
-    # fallbacks, retries, and multi-provider access.
-    return init_chat_model(
-        model,
-        model_provider=provider,
+    return ChatOpenAI(
+        model=fully_specified_name,
         api_key=os.getenv("ORQ_API_KEY"),
         base_url="https://api.orq.ai/v2/router",
     )

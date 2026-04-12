@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to upload the RAG assistant evaluation dataset to orq.ai.
+Script to upload the Hybrid Data Agent evaluation dataset to orq.ai.
 """
 
 import json
@@ -20,7 +20,7 @@ from core.settings import settings
 def main():
     """Upload dataset to orq.ai."""
 
-    print("Uploading RAG Assistant Dataset to orq.ai")
+    print("Uploading Hybrid Data Agent Dataset to orq.ai")
 
     # Check API key
     api_key = os.environ.get("ORQ_API_KEY")
@@ -29,7 +29,7 @@ def main():
         return 1
 
     # Load dataset
-    filename = "evals/datasets/toyota_assistant_tool_calling_evals.jsonl"
+    filename = "evals/datasets/tool_calling_evals.jsonl"
     if not os.path.exists(filename):
         print(f"Dataset file not found: {filename}")
         return 1
@@ -45,7 +45,7 @@ def main():
 
     # Create dataset and upload datapoints
     with Orq(api_key=api_key) as client:
-        dataset_name = "toyota-assistant-tool-calling-evals"
+        dataset_name = "hybrid-data-agent-tool-calling-evals"
 
         print(f"Creating dataset: {dataset_name}")
         dataset = client.datasets.create(

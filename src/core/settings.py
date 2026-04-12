@@ -31,6 +31,18 @@ class Settings(BaseSettings):
         env="ORQ_PROJECT_NAME",
     )
 
+    ORQ_KNOWLEDGE_BASE_ID: str = Field(
+        default="",
+        description="orq.ai Knowledge Base ID for document search (leave empty to create one on ingestion)",
+        env="ORQ_KNOWLEDGE_BASE_ID",
+    )
+
+    ORQ_SYSTEM_PROMPT_ID: str = Field(
+        default="",
+        description="orq.ai prompt ID for the main system prompt (leave empty to use the local fallback in prompts.py)",
+        env="ORQ_SYSTEM_PROMPT_ID",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",
@@ -50,40 +62,10 @@ class Settings(BaseSettings):
         env="MAX_SEARCH_RESULTS",
     )
 
-    # Database Configuration
-    CHROMA_DB_PATH: Path = Field(
-        default=Path("./chroma_db"),
-        description="Default path for ChromaDB vector database",
-        env="CHROMA_DB_PATH",
-    )
-
-    CHROMA_COLLECTION_NAME: str = Field(
-        default="documents",
-        description="ChromaDB collection name for documents",
-        env="CHROMA_COLLECTION_NAME",
-    )
-
-    CHROMA_API_KEY: str = Field(
-        default="",
-        description="ChromaDB API key for cloud deployment (optional)",
-        env="CHROMA_API_KEY",
-    )
-
-    CHROMA_TENANT_ID: str = Field(
-        default="default_tenant",
-        description="ChromaDB tenant ID for cloud deployment",
-        env="CHROMA_TENANT_ID",
-    )
-
-    CHROMA_DATABASE_NAME: str = Field(
-        default="rag-reference-demo",
-        description="ChromaDB database name",
-        env="CHROMA_DATABASE_NAME",
-    )
-
+    # Embedding Configuration
     EMBEDDING_MODEL: str = Field(
         default="text-embedding-3-small",
-        description="OpenAI embedding model for ChromaDB",
+        description="OpenAI embedding model used by orq.ai Knowledge Base",
         env="EMBEDDING_MODEL",
     )
 
@@ -128,7 +110,6 @@ class Settings(BaseSettings):
 
     # Validators
     @field_validator(
-        "CHROMA_DB_PATH",
         "DEFAULT_SQLITE_PATH",
         "STARTERS_CSV_PATH",
         "INPUT_DOCS_PATH",

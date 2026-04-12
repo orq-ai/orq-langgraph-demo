@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
-PDF Document Ingestion Pipeline for ChromaDB
+PDF Document Ingestion Pipeline for orq.ai Knowledge Base.
 
-Pipeline for ingesting PDF documents into ChromaDB with:
-- Semantic-aware text chunking
-- Rich metadata extraction and management
-- Error handling and logging
-- Batch processing capabilities
-- Verification and testing functions
+Pipeline for ingesting PDF documents into an orq.ai Knowledge Base with:
+- Semantic-aware local chunking (PyPDFLoader + RecursiveCharacterTextSplitter)
+- Rich metadata extraction
+- Batch chunk upload via orq.ai SDK
+- Verification via orq.ai search API
 
 Features chosen for the sake of simplicity and time constraints for the PoC.
-For a production environment, there are many more features that could be added.
+For a production environment, consider adding:
     - Contextual Retrieval
     - Metadata enrichment
     - Summarization
-    - Document filtering
-    etc ...
-
+    - Document deduplication
 """
 
 from datetime import datetime
@@ -24,106 +21,147 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-import shutil
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
-import chromadb
+import httpx
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
+from orq_ai_sdk import Orq
 
 # Add src directory to path for importing settings
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 from core.settings import settings
 
-# Load environment variables
 load_dotenv()
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("chroma_ingestion.log"), logging.StreamHandler()],
+    handlers=[logging.FileHandler("orq_ingestion.log"), logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
-# FIXME: Ignore PyPDF warnings about deprecated features. Consider upgrading to new version of PyPDF. Need of time to test it.
+# Ignore PyPDF warnings about deprecated features
 warnings.filterwarnings("ignore", category=UserWarning, module="pypdf._reader")
 
 
-class ChromaPDFIngestionPipeline:
-    """
-    Simple PDF ingestion pipeline for ChromaDB.
-    """
+class OrqPDFIngestionPipeline:
+    """PDF ingestion pipeline for orq.ai Knowledge Base."""
 
     def __init__(
         self,
-        persist_directory: str = None,
-        collection_name: str = None,
-        embedding_model: str = None,
-        chunk_size: int = None,
-        chunk_overlap: int = None,
-        openai_api_key: Optional[str] = None,
-        delete_existing: bool = False,
+        knowledge_base_id: Optional[str] = None,
+        knowledge_base_key: str = "hybrid-data-agent-kb",
+        embedding_model: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        orq_api_key: Optional[str] = None,
+        project_path: Optional[str] = None,
     ):
         """
-        Initialize the ChromaDB PDF ingestion pipeline.
+        Initialize the orq.ai Knowledge Base ingestion pipeline.
 
         Args:
-            persist_directory: Directory to store ChromaDB data (uses settings default if None)
-            collection_name: Name of the ChromaDB collection (uses settings default if None)
-            embedding_model: OpenAI embedding model to use (uses settings default if None)
-            chunk_size: Maximum characters per text chunk (uses settings default if None)
-            chunk_overlap: Overlap between chunks for context preservation (uses settings default if None)
-            openai_api_key: OpenAI API key (uses env var if not provided)
-            delete_existing: Whether to delete existing database
+            knowledge_base_id: Existing Knowledge Base ID. If None, a new KB is created.
+            knowledge_base_key: Key/name for the Knowledge Base (used when creating).
+            embedding_model: Embedding model for the KB (e.g. "openai/text-embedding-3-small").
+            chunk_size: Max characters per chunk (uses settings default if None).
+            chunk_overlap: Overlap between chunks (uses settings default if None).
+            orq_api_key: orq.ai API key (uses ORQ_API_KEY env var if not provided).
+            project_path: orq.ai project path (uses settings.ORQ_PROJECT_NAME if None).
         """
-        # Use settings as defaults if parameters are not provided
-        self.persist_directory = persist_directory or str(settings.CHROMA_DB_PATH)
-        self.collection_name = collection_name or settings.CHROMA_COLLECTION_NAME
-        self.embedding_model = embedding_model or settings.EMBEDDING_MODEL
+        self.orq_api_key = orq_api_key or os.environ.get("ORQ_API_KEY")
+        if not self.orq_api_key:
+            raise ValueError("ORQ_API_KEY is required. Set it in the environment.")
+
+        self.knowledge_base_key = knowledge_base_key
+        self.embedding_model = embedding_model or f"openai/{settings.EMBEDDING_MODEL}"
         self.chunk_size = chunk_size or settings.CHUNK_SIZE
         self.chunk_overlap = chunk_overlap or settings.CHUNK_OVERLAP
+        self.project_path = project_path or settings.ORQ_PROJECT_NAME
 
-        # Setup API key
-        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
+        self.client = Orq(api_key=self.orq_api_key)
 
-        # Initialize components
-        self._setup_database(delete_existing)
         self._setup_text_splitter()
-        self._setup_embeddings()
+        self.knowledge_base_id = knowledge_base_id or self._create_knowledge_base()
+        logger.info(f"Using Knowledge Base ID: {self.knowledge_base_id}")
 
-        logger.info(f"ChromaDB pipeline initialized - Collection: {collection_name}")
+    def _create_knowledge_base(self) -> str:
+        """Find an existing Knowledge Base by key or create a new one.
 
-    def _setup_database(self, delete_existing: bool) -> None:
-        """Setup ChromaDB database and handle existing data."""
-        if delete_existing and os.path.exists(self.persist_directory):
-            shutil.rmtree(self.persist_directory)
-            logger.info(f"Deleted existing database at {self.persist_directory}")
+        Uses raw HTTP because the installed SDK's CreateKnowledgeRequestBody
+        is missing the required `type` field that the API demands.
+        """
+        # First, check if a KB with this key already exists
+        existing_id = self._find_knowledge_base_by_key(self.knowledge_base_key)
+        if existing_id:
+            logger.info(
+                f"Reusing existing Knowledge Base '{self.knowledge_base_key}' ({existing_id})"
+            )
+            return existing_id
 
-        # Ensure directory exists
-        Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"Creating Knowledge Base '{self.knowledge_base_key}' "
+            f"in project '{self.project_path}' with embedding model '{self.embedding_model}'"
+        )
+        headers = {
+            "Authorization": f"Bearer {self.orq_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {
+            "key": self.knowledge_base_key,
+            "embedding_model": self.embedding_model,
+            "path": self.project_path,
+            "type": "internal",
+        }
+        response = httpx.post(
+            "https://api.orq.ai/v2/knowledge",
+            headers=headers,
+            json=payload,
+            timeout=30.0,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Failed to create Knowledge Base (status {response.status_code}): {response.text}"
+            )
+        body = response.json()
+        kb_id = body.get("_id") or body.get("id")
+        if not kb_id:
+            raise RuntimeError(f"Could not extract KB ID from response: {body}")
+        return kb_id
+
+    def _find_knowledge_base_by_key(self, key: str) -> Optional[str]:
+        """Return the ID of an existing Knowledge Base with this key, or None."""
+        try:
+            response = self.client.knowledge.list(limit=50)
+            items = getattr(response, "data", []) or []
+            for kb in items:
+                if getattr(kb, "key", None) == key:
+                    return getattr(kb, "id", None) or getattr(kb, "_id", None)
+        except Exception as e:
+            logger.warning(f"Failed to list existing Knowledge Bases: {e}")
+        return None
 
     def _setup_text_splitter(self) -> None:
-        """Initialize simple text splitter with semantic-aware settings."""
+        """Initialize text splitter with semantic-aware settings."""
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             separators=[
-                "\n\n",  # Paragraph breaks
-                "\n",  # Line breaks
-                ". ",  # Sentence endings
-                "! ",  # Exclamation sentences
-                "? ",  # Question sentences
-                "; ",  # Semicolon breaks
-                ", ",  # Comma breaks
-                " ",  # Word boundaries
-                "",  # Character fallback
+                "\n\n",
+                "\n",
+                ". ",
+                "! ",
+                "? ",
+                "; ",
+                ", ",
+                " ",
+                "",
             ],
             length_function=len,
             is_separator_regex=False,
@@ -132,101 +170,23 @@ class ChromaPDFIngestionPipeline:
             f"Text splitter configured - Chunk size: {self.chunk_size}, Overlap: {self.chunk_overlap}"
         )
 
-    def _setup_embeddings(self) -> None:
-        """Initialize basic OpenAI embeddings."""
-        if not self.openai_api_key:
-            logger.warning("OpenAI API key not found. Embeddings will be initialized when needed.")
-            self.embeddings = None
-            return
-
-        try:
-            self.embeddings = OpenAIEmbeddings(
-                model=self.embedding_model,
-                openai_api_key=self.openai_api_key,
-                show_progress_bar=True,
-            )
-            logger.info(f"Embeddings initialized - Model: {self.embedding_model}")
-        except Exception as e:
-            logger.error(f"Failed to initialize embeddings: {e}")
-            raise
-
-    def _get_vectorstore(self) -> Chroma:
-        """Get or create ChromaDB vector store."""
-        if not self.embeddings:
-            if not self.openai_api_key:
-                raise ValueError(
-                    "OpenAI API key is required for vector store operations. Set OPENAI_API_KEY environment variable."
-                )
-            # Initialize embeddings if not done yet
-            self._setup_embeddings()
-
-        try:
-            if settings.CHROMA_API_KEY and settings.CHROMA_API_KEY.strip():
-                # Use ChromaDB Cloud
-                logger.info("Initializing ChromaDB Cloud client...")
-                chroma_client = chromadb.CloudClient(
-                    api_key=settings.CHROMA_API_KEY,
-                    tenant=settings.CHROMA_TENANT_ID,
-                    database=settings.CHROMA_DATABASE_NAME,
-                )
-                vectorstore = Chroma(
-                    client=chroma_client,
-                    collection_name=self.collection_name,
-                    embedding_function=self.embeddings,
-                )
-                logger.info(
-                    f"ChromaDB Cloud client initialized with collection: {self.collection_name}"
-                )
-            else:
-                # Use local ChromaDB
-                logger.info(f"Initializing local ChromaDB client at: {settings.CHROMA_DB_PATH}")
-                vectorstore = Chroma(
-                    collection_name=self.collection_name,
-                    embedding_function=self.embeddings,
-                    persist_directory=str(self.persist_directory),
-                )
-                logger.info(
-                    f"Local ChromaDB client initialized with collection: {self.collection_name}"
-                )
-
-            return vectorstore
-        except Exception as e:
-            logger.error(f"Failed to initialize vector store: {e}")
-            logger.error(
-                f"Chroma parameters - collection: {self.collection_name}, persist_dir: {self.persist_directory}"
-            )
-            raise
-
     def _extract_pdf_metadata(self, file_path: str, document: Document) -> Dict[str, Any]:
-        """
-        Extract basic metadata from PDF file.
-
-        Args:
-            file_path: Path to the PDF file
-            document: Loaded document object
-
-        Returns:
-            Dictionary containing metadata
-        """
+        """Extract metadata from PDF file and document."""
         file_stat = os.stat(file_path)
         file_hash = self._calculate_file_hash(file_path)
 
-        metadata = {
-            # File information
+        metadata: Dict[str, Any] = {
             "source": file_path,
             "filename": os.path.basename(file_path),
             "file_size": file_stat.st_size,
             "file_hash": file_hash,
             "ingestion_timestamp": datetime.now().isoformat(),
-            # Document type and processing info
             "document_type": "pdf",
-            "collection": self.collection_name,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "embedding_model": self.embedding_model,
         }
 
-        # Add original document metadata if available
         if hasattr(document, "metadata") and document.metadata:
             original_metadata = document.metadata
             metadata.update(
@@ -239,7 +199,7 @@ class ChromaPDFIngestionPipeline:
         return metadata
 
     def _calculate_file_hash(self, file_path: str) -> str:
-        """Calculate SHA-256 hash of file for simplededuplication."""
+        """Calculate SHA-256 hash of file for deduplication."""
         hash_sha256 = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
@@ -247,34 +207,21 @@ class ChromaPDFIngestionPipeline:
         return hash_sha256.hexdigest()
 
     def _process_single_pdf(self, file_path: str) -> Tuple[List[Document], Dict[str, Any]]:
-        """
-        Process a single PDF file into chunks with basic metadata.
-
-        Args:
-            file_path: Path to the PDF file
-
-        Returns:
-            Tuple of (document chunks, processing stats)
-        """
+        """Process a single PDF file into chunks with metadata."""
         try:
             logger.info(f"Processing PDF: {file_path}")
 
-            # Load PDF document
             loader = PyPDFLoader(file_path)
             documents = loader.load()
 
             if not documents:
                 raise ValueError(f"No content extracted from {file_path}")
 
-            # Split documents into chunks
             chunks = self.text_splitter.split_documents(documents)
 
-            # Enhance metadata for each chunk
             enhanced_chunks = []
             for i, chunk in enumerate(chunks):
                 base_metadata = self._extract_pdf_metadata(file_path, chunk)
-
-                # Add chunk-specific metadata
                 chunk_metadata = {
                     **base_metadata,
                     "chunk_id": f"{base_metadata['file_hash']}_{i}",
@@ -282,8 +229,6 @@ class ChromaPDFIngestionPipeline:
                     "total_chunks": len(chunks),
                     "chunk_text_length": len(chunk.page_content),
                 }
-
-                # Update chunk metadata
                 chunk.metadata = chunk_metadata
                 enhanced_chunks.append(chunk)
 
@@ -291,7 +236,7 @@ class ChromaPDFIngestionPipeline:
                 "filename": os.path.basename(file_path),
                 "pages_processed": len(documents),
                 "chunks_created": len(enhanced_chunks),
-                "total_characters": sum(len(chunk.page_content) for chunk in enhanced_chunks),
+                "total_characters": sum(len(c.page_content) for c in enhanced_chunks),
                 "status": "success",
             }
 
@@ -301,38 +246,61 @@ class ChromaPDFIngestionPipeline:
             return enhanced_chunks, processing_stats
 
         except Exception as e:
-            error_stats = {
+            logger.error(f"Failed to process {file_path}: {e}")
+            return [], {
                 "filename": os.path.basename(file_path),
                 "status": "error",
                 "error_message": str(e),
             }
-            logger.error(f"Failed to process {file_path}: {e}")
-            return [], error_stats
+
+    def _upload_chunks(self, datasource_id: str, chunks: List[Document]) -> None:
+        """
+        Upload chunks to a datasource via REST API.
+
+        Uses raw HTTP because the SDK's typed CreateChunkMetadata silently
+        strips extra fields — we need to preserve all our custom metadata.
+        """
+        # orq.ai metadata values must be primitive (string, number, bool).
+        # Flatten non-primitives to strings.
+        def flatten_value(v: Any) -> Any:
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                return v
+            return str(v)
+
+        payload = [
+            {
+                "text": chunk.page_content,
+                "metadata": {k: flatten_value(v) for k, v in chunk.metadata.items()},
+            }
+            for chunk in chunks
+        ]
+
+        headers = {
+            "Authorization": f"Bearer {self.orq_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        url = (
+            f"https://api.orq.ai/v2/knowledge/{self.knowledge_base_id}"
+            f"/datasources/{datasource_id}/chunks"
+        )
+        response = httpx.post(url, headers=headers, json=payload, timeout=120.0)
+        response.raise_for_status()
 
     def ingest_pdf_directory(
-        self, folder_path: str, file_patterns: List[str] = None
+        self, folder_path: str, file_patterns: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """
-        Ingest all PDF files from a directory.
-
-        Args:
-            folder_path: Path to directory containing PDFs
-            file_patterns: List of file patterns to match (default: ["*.pdf"])
-
-        Returns:
-            Dictionary containing ingestion results and statistics
-        """
+        """Ingest all PDF files from a directory into the Knowledge Base."""
         if file_patterns is None:
             file_patterns = ["*.pdf"]
 
-        folder_path = Path(folder_path)
-        if not folder_path.exists():
+        folder_path_obj = Path(folder_path)
+        if not folder_path_obj.exists():
             raise ValueError(f"Directory does not exist: {folder_path}")
 
-        # Find PDF files
         pdf_files = []
         for pattern in file_patterns:
-            pdf_files.extend(folder_path.glob(pattern))
+            pdf_files.extend(folder_path_obj.glob(pattern))
 
         if not pdf_files:
             logger.warning(f"No PDF files found in {folder_path}")
@@ -340,87 +308,64 @@ class ChromaPDFIngestionPipeline:
 
         logger.info(f"Found {len(pdf_files)} PDF files to process")
 
-        # Process files and collect results
-        vectorstore = self._get_vectorstore()
-        all_chunks = []
         processing_results = []
+        total_chunks_uploaded = 0
 
         for pdf_file in pdf_files:
             chunks, stats = self._process_single_pdf(str(pdf_file))
-            all_chunks.extend(chunks)
             processing_results.append(stats)
 
-        # Batch add documents to ChromaDB with size limits
-        if all_chunks:
+            if not chunks:
+                continue
+
+            # Create a datasource for this PDF
+            filename = os.path.basename(str(pdf_file))
             try:
-                # Generate unique IDs for chunks
-                chunk_ids = [chunk.metadata["chunk_id"] for chunk in all_chunks]
-
-                # Determine batch size based on ChromaDB type and quota limits
-                if settings.CHROMA_API_KEY and settings.CHROMA_API_KEY.strip():
-                    max_batch_size = 100  # respecting ChromaDB Cloud quota
-                    logger.warning(
-                        "Using ChromaDB Cloud with quota limits. Consider upgrading plan for larger datasets."
-                    )
-                else:
-                    max_batch_size = 1000  # Local ChromaDB can handle larger batches
-
-                total_chunks = len(all_chunks)
-                logger.info(
-                    f"Adding {total_chunks} chunks to ChromaDB in batches of {max_batch_size}"
+                datasource = self.client.knowledge.create_datasource(
+                    knowledge_id=self.knowledge_base_id,
+                    display_name=filename,
                 )
+                datasource_id = getattr(datasource, "id", None) or getattr(
+                    datasource, "_id", None
+                )
+                if not datasource_id:
+                    raise RuntimeError(f"Could not extract datasource ID from response: {datasource}")
 
-                # Process documents in batches
-                for i in range(0, total_chunks, max_batch_size):
-                    end_idx = min(i + max_batch_size, total_chunks)
-                    batch_docs = all_chunks[i:end_idx]
-                    batch_ids = chunk_ids[i:end_idx]
-
-                    logger.info(
-                        f"Processing batch {i // max_batch_size + 1}: documents {i + 1}-{end_idx}"
-                    )
-
-                    # Add batch to vector store
-                    try:
-                        vectorstore.add_documents(documents=batch_docs, ids=batch_ids)
-                        logger.info(
-                            f"Successfully added batch {i // max_batch_size + 1} ({len(batch_docs)} chunks)"
-                        )
-                    except Exception as batch_error:
-                        if "Quota exceeded" in str(batch_error):
-                            logger.error(
-                                f"ChromaDB Cloud quota exceeded in batch {i // max_batch_size + 1}"
-                            )
-                            logger.error("Consider:")
-                            logger.error("   - Processing fewer documents at a time")
-                            logger.error("   - Upgrading your ChromaDB Cloud plan")
-                            logger.error(
-                                "   - Using local ChromaDB (just need to unset CHROMA_API_KEY environment variable)"
-                            )
-                            raise
-                        else:
-                            raise batch_error
-
-                logger.info(f"Successfully added all {total_chunks} chunks to ChromaDB")
-
+                logger.info(f"Created datasource '{filename}' ({datasource_id})")
             except Exception as e:
-                logger.error(f"Failed to add documents to ChromaDB: {e}")
-                raise
+                logger.error(f"Failed to create datasource for {filename}: {e}")
+                stats["status"] = "error"
+                stats["error_message"] = f"datasource creation failed: {e}"
+                continue
 
-        # Compile final results
+            # Upload chunks in batches (orq.ai API limit: 100 chunks per request)
+            batch_size = 100
+            for i in range(0, len(chunks), batch_size):
+                batch = chunks[i : i + batch_size]
+                try:
+                    self._upload_chunks(datasource_id, batch)
+                    total_chunks_uploaded += len(batch)
+                    logger.info(
+                        f"Uploaded batch {i // batch_size + 1} ({len(batch)} chunks) for {filename}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to upload batch for {filename}: {e}")
+                    stats["status"] = "error"
+                    stats["error_message"] = f"chunk upload failed: {e}"
+                    break
+
         successful_files = [r for r in processing_results if r["status"] == "success"]
         failed_files = [r for r in processing_results if r["status"] == "error"]
 
         results = {
             "status": "completed",
+            "knowledge_base_id": self.knowledge_base_id,
             "files_processed": len(pdf_files),
             "successful_files": len(successful_files),
             "failed_files": len(failed_files),
-            "total_chunks": len(all_chunks),
+            "total_chunks": total_chunks_uploaded,
             "total_characters": sum(r.get("total_characters", 0) for r in successful_files),
             "processing_results": processing_results,
-            "collection_name": self.collection_name,
-            "persist_directory": self.persist_directory,
         }
 
         logger.info(
@@ -428,16 +373,8 @@ class ChromaPDFIngestionPipeline:
         )
         return results
 
-    def verify_ingestion(self, sample_queries: List[str] = None) -> Dict[str, Any]:
-        """
-        Verify the ingestion by performing test searches.
-
-        Args:
-            sample_queries: List of test queries
-
-        Returns:
-            Dictionary containing verification results
-        """
+    def verify_ingestion(self, sample_queries: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Verify ingestion by performing test searches via orq.ai."""
         if sample_queries is None:
             sample_queries = [
                 "Toyota",
@@ -447,117 +384,81 @@ class ChromaPDFIngestionPipeline:
                 "vehicle maintenance",
             ]
 
-        vectorstore = self._get_vectorstore()
-        verification_results = {
-            "total_documents": vectorstore._collection.count(),
-            "search_tests": [],
-        }
+        verification_results: Dict[str, Any] = {"search_tests": []}
 
         for query in sample_queries:
             try:
-                results = vectorstore.similarity_search(query=query, k=3)
+                response = self.client.knowledge.search(
+                    knowledge_id=self.knowledge_base_id,
+                    query=query,
+                )
+                matches = getattr(response, "matches", None) or []
+                sample_content = None
+                if matches:
+                    first = matches[0]
+                    text = getattr(first, "text", None) or getattr(first, "content", None) or ""
+                    sample_content = text[:200] + "..." if text else None
 
-                search_result = {
-                    "query": query,
-                    "results_found": len(results),
-                    "status": "success",
-                    "sample_content": results[0].page_content[:200] + "..." if results else None,
-                }
-
+                verification_results["search_tests"].append(
+                    {
+                        "query": query,
+                        "results_found": len(matches),
+                        "status": "success",
+                        "sample_content": sample_content,
+                    }
+                )
             except Exception as e:
-                search_result = {"query": query, "status": "error", "error_message": str(e)}
+                verification_results["search_tests"].append(
+                    {"query": query, "status": "error", "error_message": str(e)}
+                )
 
-            verification_results["search_tests"].append(search_result)
-
-        logger.info(
-            f"Verification completed - {verification_results['total_documents']} documents in collection"
-        )
         return verification_results
 
-    def get_collection_stats(self) -> Dict[str, Any]:
-        """Get statistics about the current collection."""
-        try:
-            vectorstore = self._get_vectorstore()
-            collection = vectorstore._collection
 
-            stats = {
-                "collection_name": self.collection_name,
-                "total_documents": collection.count(),
-                "persist_directory": self.persist_directory,
-                "embedding_model": self.embedding_model,
-                "chunk_configuration": {
-                    "chunk_size": self.chunk_size,
-                    "chunk_overlap": self.chunk_overlap,
-                },
-            }
-
-            # Try to get a sample document for metadata analysis
-            try:
-                sample_docs = vectorstore.similarity_search("sample", k=1)
-                if sample_docs:
-                    stats["sample_metadata"] = sample_docs[0].metadata
-            except Exception:
-                logger.warning("No sample document found for metadata analysis")
-
-            return stats
-
-        except Exception as e:
-            logger.error(f"Failed to get collection stats: {e}")
-            return {"error": str(e)}
-
-
-def create_pipeline_from_settings(delete_existing: bool = False) -> ChromaPDFIngestionPipeline:
-    """
-    Create a ChromaPDFIngestionPipeline using configuration from settings.
-
-    Args:
-        delete_existing: Whether to delete existing database
-
-    Returns:
-        Configured ChromaPDFIngestionPipeline instance
-    """
-    return ChromaPDFIngestionPipeline(
-        persist_directory=str(settings.CHROMA_DB_PATH),
-        collection_name=settings.CHROMA_COLLECTION_NAME,
-        embedding_model=settings.EMBEDDING_MODEL,
+def create_pipeline_from_settings() -> OrqPDFIngestionPipeline:
+    """Create an OrqPDFIngestionPipeline using configuration from settings."""
+    return OrqPDFIngestionPipeline(
+        knowledge_base_id=settings.ORQ_KNOWLEDGE_BASE_ID or None,
+        embedding_model=f"openai/{settings.EMBEDDING_MODEL}",
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
-        delete_existing=delete_existing,
     )
 
 
 def main():
     """Main function demonstrating the pipeline usage."""
-    # Configuration from settings
     DOCS_FOLDER = str(settings.INPUT_DOCS_PATH)
 
-    # Display current configuration
     print("Configuration from settings:")
     print(f"  - Input docs path: {DOCS_FOLDER}")
-    print(f"  - ChromaDB path: {settings.CHROMA_DB_PATH}")
-    print(f"  - Collection name: {settings.CHROMA_COLLECTION_NAME}")
-    print(f"  - Embedding model: {settings.EMBEDDING_MODEL}")
+    print(f"  - orq.ai project: {settings.ORQ_PROJECT_NAME}")
+    print(f"  - Existing KB ID: {settings.ORQ_KNOWLEDGE_BASE_ID or '(will create new)'}")
+    print(f"  - Embedding model: openai/{settings.EMBEDDING_MODEL}")
     print(f"  - Chunk size: {settings.CHUNK_SIZE}")
     print(f"  - Chunk overlap: {settings.CHUNK_OVERLAP}")
     print()
 
     try:
-        # Initialize pipeline using settings
-        pipeline = create_pipeline_from_settings(delete_existing=True)
+        pipeline = create_pipeline_from_settings()
 
-        # Ingest PDF documents
         print("Starting PDF ingestion...")
         results = pipeline.ingest_pdf_directory(DOCS_FOLDER)
 
-        print("\n Ingestion Results:")
+        print("\nIngestion Results:")
+        print(f"  - Knowledge Base ID: {results['knowledge_base_id']}")
         print(f"  - Files processed: {results['files_processed']}")
         print(f"  - Successful files: {results['successful_files']}")
         print(f"  - Failed files: {results['failed_files']}")
-        print(f"  - Total chunks created: {results['total_chunks']}")
+        print(f"  - Total chunks uploaded: {results['total_chunks']}")
         print(f"  - Total characters: {results['total_characters']:,}")
 
-        # Verify ingestion
-        print("\n Verifying ingestion...")
+        if not settings.ORQ_KNOWLEDGE_BASE_ID:
+            print(
+                f"\nTIP: set ORQ_KNOWLEDGE_BASE_ID={results['knowledge_base_id']} in .env "
+                f"to reuse this Knowledge Base on subsequent runs."
+            )
+
+        print("\nVerifying ingestion...")
         verification = pipeline.verify_ingestion(
             [
                 "Toyota warranty policy",
@@ -567,25 +468,16 @@ def main():
             ]
         )
 
-        print(f"  - Total documents in collection: {verification['total_documents']}")
         print("  - Search test results:")
         for test in verification["search_tests"]:
-            status = "[done]" if test["status"] == "success" else "[failed]"
+            status = "[ok]" if test["status"] == "success" else "[fail]"
             print(f"    {status} '{test['query']}': {test.get('results_found', 0)} results")
 
-        # Show collection statistics
-        print("\n Collection Statistics:")
-        stats = pipeline.get_collection_stats()
-        print(f"  - Collection: {stats['collection_name']}")
-        print(f"  - Total documents: {stats['total_documents']}")
-        print(f"  - Storage location: {stats['persist_directory']}")
-        print(f"  - Embedding model: {stats['embedding_model']}")
-
-        print("\n Pipeline completed successfully!")
+        print("\nPipeline completed successfully!")
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
-        print(f"\n Pipeline failed: {e}")
+        print(f"\nPipeline failed: {e}")
         raise
 
 

@@ -1,4 +1,4 @@
-"""Individual SQL tools for the RAG Assistant.
+"""Individual SQL tools for the Hybrid Data Agent.
 
 This module provides specific, well-documented tools for each type of sales data query.
 Each tool maps directly to a specific SQL query template for better clarity and control.

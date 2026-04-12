@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Chainlit UI for the RAG Assistant.
+Chainlit UI for the Hybrid Data Agent.
 
-This is the Chainlit-based web interface for the LangGraph RAG assistant.
+This is the Chainlit-based web interface for the LangGraph agent.
 It supports basic multi-turn conversations with the LangGraph agent.
 
 Key features:

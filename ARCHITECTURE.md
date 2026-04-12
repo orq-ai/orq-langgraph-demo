@@ -1,6 +1,6 @@
 # Architecture
 
-The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. Here I document some architecture decisions.
+The Hybrid Data Agent is a reference implementation of a conversational AI agent that combines structured data (SQLite sales records) with unstructured documents (manuals, contracts, warranty policies) in a single LangGraph workflow. Built with LangGraph for agent orchestration, the orq.ai Knowledge Base for managed vector storage, and SQLite for structured data, it demonstrates end-to-end patterns for building agents that reason across multiple data sources, managed through the orq.ai platform. Here I document the key architecture decisions.
 
 ## Architecture Overview Diagram
 
@@ -14,14 +14,15 @@ The Toyota RAG Assistant is a PoC for a conversational AI system that combines s
 - **Components**:
   - Safety guardrails (OpenAI Moderation)
   - Query classification router
-  - Tool-calling agent with GPT-4.1-mini
+  - Tool-calling agent with GPT-4.1-mini routed through the orq.ai AI Router
   - State management for conversation context
+  - System prompt fetched from orq.ai Prompts at startup (with local fallback)
 
 ### 2. **Data Access Layer**
 
 - **Structured Data**: SQLite with star schema (fact tables + dimensions)
   - `fact_sales`, `dim_model`, `dim_country`, `dim_ordertype`
-- **Unstructured Data**: ChromaDB vector store with OpenAI embeddings
+- **Unstructured Data**: orq.ai Knowledge Base (managed embeddings + vector search)
   - PDF documents, manuals, warranties, contracts
 
 ### 3. **Tool Layer**
@@ -43,7 +44,7 @@ Here is the list of predefined queries and their use:
   - `get_powertrain_sales_trends`: Powertrain-specific monthly trends
   - `compare_models_by_brand`: Brand-specific model comparisons
 
-- **Vector Search Tools**: Semantic search across documents. Available pdfs were ingested and persisted using ChromaDB.
+- **Vector Search Tools**: Semantic search across documents. PDFs are chunked locally (PyPDF + RecursiveCharacterTextSplitter) and ingested into an orq.ai Knowledge Base, which handles embeddings and vector search.
 
 ### 4. **User Interface Layer**
 
@@ -78,23 +79,6 @@ Overview of how data flows through the agent to answer questions.
 - Query classification: ~300-500ms
 - Tool execution: ~100-400ms
 - Response generation: ~1-5s (streaming depending on the size of the answer)
-
-### **Cost**
-
-**Current Cost Structure:**
-
-```
-Per 1000 User Interactions (estimated):
-
-OpenAI API Costs: ~$1.35 per 1000 questions
-
-Infrastructure:
-|-- Compute [Render](https://render.com/): ~$7-25/month
-|-- Storage [ChromaDB](https://www.trychroma.com/): ~$0-10/month
-`-- Total Infrastructure: ~$7-35/month
-
-The goal was to focus on DX for quick and easy CI/CD instead of cost. 
-```
 
 ### Security
 
@@ -141,6 +125,16 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 - **Current**: By default Chainlit serves the files under the public directory as static files. Good for a prototype but not for production environment.
 - **Recommendation**: Ideally this would be served with something like blob storage or S3 bucket with proper access control and permissions.
 
+## Observability
+
+All LangGraph executions are traced to the orq.ai Studio via OpenTelemetry
+(see [`src/assistant/tracing.py`](src/assistant/tracing.py)). The Control
+Tower auto-registers agents, tools, and models from the spans, and every
+trace captures the full graph tree — nodes, LLM calls, tool executions, and
+Knowledge Base retrievals — with token usage and cost per step.
+
+The trace, timeline, and thread views are shown in [README.md#observability](README.md#observability).
+
 ## Evaluation & Testing
 
 ### **orq.ai Evaluation (evaluatorq)**
@@ -161,20 +155,9 @@ The goal was to focus on DX for quick and easy CI/CD instead of cost.
 
 - Implement response caching for common queries
 - Use smaller models for classification tasks. We are using GPT-4.1-mini, but we could test with even smaller models for specific classification tasks.
-- **Model Routing Strategy**: Consider using [Cast.ai](https://cast.ai/) - a proxy tool that routes to the cheapest model available without compromising quality
+- **Model Routing Strategy**: TODO — enable [orq.ai AI Router auto-routing](https://router.orq.ai/) so LLM calls are dispatched to the cheapest model that still meets the quality bar, with built-in fallbacks and retries. We already route through `https://api.orq.ai/v2/router` (see [`src/assistant/utils.py`](src/assistant/utils.py#L102)), so this is a configuration change in the Router, not a code change.
 - **Batch Processing**: Consider using OpenAI Batch API for even lower costs during document ingestion
 - Better concurrency management for document ingestion pipeline
-
-### More Security
-
-- Add authentication
-- Implement rate limiting per user or IP
-
-### Billing Strategy
-
-- **Usage-Based Billing**: Consider using [Lago](https://www.getlago.com/) - a usage-based billing and metering cloud solution
-- **Flexible Pricing Models**: Setup billing by message, tokens, packages, etc.
-- **Focus Benefits**: This way we can focus on the system and the billing experimentation until we find the billing model we are happy with
 
 ### Document Relevancy and Performance
 

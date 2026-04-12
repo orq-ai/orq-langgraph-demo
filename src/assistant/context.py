@@ -16,10 +16,12 @@ class Context:
     """The context for the agent."""
 
     system_prompt: str = field(
-        default=prompts.SYSTEM_PROMPT,
+        default_factory=prompts.get_system_prompt,
         metadata={
             "description": "The system prompt to use for the agent's interactions. "
-            "This prompt sets the context and behavior for the agent."
+            "This prompt sets the context and behavior for the agent. "
+            "Fetched from orq.ai when ORQ_SYSTEM_PROMPT_ID is set, "
+            "otherwise falls back to the hardcoded SYSTEM_PROMPT."
         },
     )
 

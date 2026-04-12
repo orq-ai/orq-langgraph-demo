@@ -1,23 +1,34 @@
-# Toyota/Lexus RAG Assistant
+# Hybrid Data Agent — LangGraph + orq.ai reference implementation
 
-The Toyota RAG Assistant is a PoC for a conversational AI system that combines structured vehicle sales data with unstructured documents to provide comprehensive Toyota/Lexus vehicle information using best practices for this type of project. Built with LangGraph for agent orchestration, ChromaDB for vector storage, and SQLite for structured data, it demonstrates simple but advanced RAG architecture patterns and is ready for deployment with Docker. It also includes a comprehensive [Evaluation Pipeline](EVALS.md) focused on testing tool calling accuracy using [orq.ai](https://orq.ai).
-More details about the architecture can be found [here](ARCHITECTURE.md).
+> **A runnable reference implementation showing how to build, observe, and evaluate LangGraph agents on orq.ai.**
 
-## What it does
+This repo is a working example of a LangGraph agent that reasons over both **structured data** (SQLite sales records) and **unstructured documents** (manuals, contracts, warranty policies via the orq.ai Knowledge Base), with the entire dev loop — prompts, retrieval, tracing, evaluation — managed through the orq.ai platform.
 
-This assistant can:
+## What you'll learn
 
-- **Context-Aware Responses**: Handles only Toyota-specific questions. Refuses unrelated questions.
-- **Query Sales Data**: Answers questions about vehicle sales using SQL database.
-- **Search Documents**: Applied semantic search to find relevant information in manuals, contracts, and warranty documents.
-- **Tool Orchestration**: Answers complex questions by combining sql and semantic questions using Agentic tool callings.
+| orq.ai feature | Problem it solves | Where it lives |
+|---|---|---|
+| **AI Router** | Multi-provider LLM access, cost tracking, fallbacks, one-line model swaps | [`src/assistant/utils.py`](src/assistant/utils.py) — `load_chat_model()` |
+| **Knowledge Base** | Managed RAG — embeddings, chunking metadata, hybrid/vector/keyword search, zero infrastructure | [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (ingest) · [`src/assistant/tools.py`](src/assistant/tools.py) (search) |
+| **Prompts** | Version system prompts without redeploying; A/B test changes against a dataset | [`src/assistant/prompts.py`](src/assistant/prompts.py) — `get_system_prompt()` |
+| **Traces (OTEL)** | Full LangGraph execution tree with cost + latency per node, tool call, and LLM request | [`src/assistant/tracing.py`](src/assistant/tracing.py) — `setup_tracing()` |
+| **evaluatorq** | Programmatic PASS/FAIL scorers, CI/CD gating, experiment comparison in the Studio | [`evals/run_evaluation_pipeline.py`](evals/run_evaluation_pipeline.py) |
+| **Datasets** | Versioned test cases, reusable across experiments, growable from production traces | [`evals/datasets/tool_calling_evals.jsonl`](evals/datasets/tool_calling_evals.jsonl) |
+| **Workspace bootstrap** | Idempotent one-command setup for project + KB + prompt + dataset | [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) |
 
-You can run it locally or you can access the deployed version at [https://rag-reference-demo.onrender.com/](https://rag-reference-demo.onrender.com/).
+See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md](EVALS.md) for the evaluation pipeline.
 
-## Knowledge Base
+## What the agent does
+
+- **Query structured sales data** — answers questions about vehicle sales via predefined SQL tools
+- **Search unstructured documents** — semantic search over manuals, contracts, and warranty policies via the orq.ai Knowledge Base
+- **Combine both** — agentic tool calling iterates between SQL and document search until it has a grounded answer
+- **Stay safe** — input moderation guardrail blocks harmful content before any LLM call
+
+## Data Sources
 
 - **Sales Data** (SQLite): Vehicle sales by model, country, and date
-- **Documents** (ChromaDB): Toyota manuals, contracts, and warranty policies
+- **Documents** (orq.ai Knowledge Base): Toyota manuals, contracts, and warranty policies
 
 ### Example Questions
 
@@ -46,7 +57,7 @@ The assistant uses a multi-step LangGraph workflow with routing:
    - **Off-topic**: Politely redirects to Toyota/Lexus topics
 4. **Agentic Tool Loop**: For Toyota questions, iterates between model and tools until complete
 
-See bellow the agent architecture.
+See below the agent architecture.
 
 ![Agent Architecture](media/agent_architecture.png)
 
@@ -73,65 +84,79 @@ Demo showing the agent using SQL capabilities to query the structured database.
 
 ### Prerequisites
 
-- **Option A (Docker)**: Docker and Docker Compose
-- **Option B (Local)**: Python 3.11+
+- **Option A (Local, recommended)**: Python 3.11+ and [uv](https://docs.astral.sh/uv/)
+- **Option B (Docker)**: Docker and Docker Compose (for running the app only — bootstrap + ingest still run on the host)
 
-OpenAI API key is mandatory.
+**Required API keys** (set in `.env` before running any setup command):
+- `OPENAI_API_KEY` — for LLM + embedding generation (ingestion)
+- `ORQ_API_KEY` — for orq.ai observability, evaluation, Knowledge Base, and prompts
+- `ORQ_PROJECT_NAME` — orq.ai project where datasets, experiments, prompts, and KBs live
 
-### Option A: Docker Deployment (Recommended)
+**Bootstrap outputs** (populated by `make setup-workspace` — see below):
+- `ORQ_KNOWLEDGE_BASE_ID` — ID of the Knowledge Base that holds the ingested PDFs
+- `ORQ_SYSTEM_PROMPT_ID` — ID of the system prompt managed in the orq.ai Studio
 
-1. **Create environment file**
-```bash
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
-```
-
-2. **Run with Docker Compose**
-```bash
-docker-compose up --build
-```
-
-3. **Or run with Docker directly**
-```bash
-# Build the image
-docker build -f Dockerfile -t toyota-assistant .
-
-# Run with environment file
-docker run -p 8000:8000 --env-file .env toyota-assistant
-```
-
-Visit `http://localhost:8000` to chat with the assistant.
-
-### Option B: Local Development
+### Option A: Local Development (Recommended)
 
 1. **Install dependencies**
 ```bash
 uv sync
 ```
 
-2. **Set environment variable**
+2. **Configure environment**
 ```bash
-export OPENAI_API_KEY="your-openai-api-key-here"
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY, ORQ_API_KEY, and ORQ_PROJECT_NAME
 ```
 
-3. **Setup databases**
+3. **Bootstrap the orq.ai workspace**
 ```bash
-# This method will create the SQLite with the structured 
-# sales data and also ingest the pdfs to a ChromaDB
-make setup-db
+# Idempotent: creates (or reuses) the project, Knowledge Base, system
+# prompt, and evaluation dataset under ORQ_PROJECT_NAME, then prints a
+# paste-safe block of IDs for your .env file.
+make setup-workspace
 ```
 
-4. **Run the UI**
+Example output:
+```
+[1/4] Project 'langgraph-demo'
+  → created new project: 019...
+[2/4] Knowledge Base 'hybrid-data-agent-kb'
+  → created new KB: 01K...
+[3/4] System prompt 'hybrid-data-agent-system-prompt'
+  → created new prompt: 01K...
+[4/4] Evaluation dataset 'hybrid-data-agent-tool-calling-evals'
+  → created new dataset: 01K...
+
+# Paste the block below into your .env file (safe to paste as-is).
+# ───────────────────────────────────────────────────────────────
+ORQ_KNOWLEDGE_BASE_ID="01K..."
+ORQ_SYSTEM_PROMPT_ID="01K..."
+# Dataset ID (not read by the app, informational only):
+# ORQ_DATASET_ID=01K...
+# ───────────────────────────────────────────────────────────────
+```
+
+Copy the block into your `.env` file.
+
+4. **Ingest data sources**
 ```bash
-# Web interface. Runs chainglit UI locally
+# Loads the SQLite sales database and ingests PDFs into the Knowledge
+# Base you just bootstrapped. Runs `ingest-sql` + `ingest-kb`.
+make ingest-data
+```
+
+5. **Run the UI**
+```bash
+# Web interface. Runs Chainlit UI locally
 make run
 ```
 Visit `http://localhost:8000` to chat with the assistant.
 
-![Toyota RAG Assistant UI](media/run_ui.png)
+![Hybrid Data Agent UI](media/run_ui.png)
 
 
-5. **Run the agent using LangGraph Studio**
+6. **Run the agent using LangGraph Studio**
 
 ```bash
 # Opens LangGraph Studio UI running our Agent
@@ -142,37 +167,85 @@ LangGraph Studio should automatically open in your browser.
 
 ![LangGraph Studio Development](media/studio_dev.png)
 
+### Option B: Docker
+
+Docker is useful once the workspace is bootstrapped and data is ingested.
+The container only runs the Chainlit app — it doesn't run setup-workspace
+or ingest-data, so make sure those are done first from your host machine.
+
+```bash
+# 1. Bootstrap and ingest from the host (see Option A steps 1–4)
+make setup-workspace   # then paste IDs into .env
+make ingest-data
+
+# 2. Build and run the container
+docker-compose up --build
+# or
+docker build -f Dockerfile -t hybrid-data-agent .
+docker run -p 8000:8000 --env-file .env hybrid-data-agent
+```
+
+Visit `http://localhost:8000` to chat with the assistant.
+
 
 ## Document Ingestion
 
-### Local ChromaDB (Default)
-
-Ingest PDF documents for semantic retrieval using ChromaDB.
-This takes some time to parse the big documents.
-
-```bash
-# Ingest PDFs from ./docs directory
-make setup-embeddings-db
-```
-
-### ChromaDB Cloud (Optional)
-
-To use ChromaDB Cloud instead of local storage you need to specify your Chroma API keys:
-
-1. **Set up ChromaDB Cloud credentials** in your `.env` file:
-   ```bash
-   CHROMA_API_KEY=your-chroma-api-key
-   CHROMA_TENANT_ID=your-tenant-id
-   CHROMA_DATABASE_NAME=your-database-name
-   ```
-
-2. **Run ingestion** (same command, will detect cloud config if available):
+Ingest PDF documents into an orq.ai Knowledge Base for semantic retrieval.
+Local chunking is done with PyPDF + `RecursiveCharacterTextSplitter`, then
+chunks are uploaded to orq.ai which handles embeddings and vector search.
 
 ```bash
-make setup-embeddings-db
+# Ingest PDFs from ./docs directory into the orq.ai Knowledge Base
+make ingest-kb
 ```
 
-The system automatically detects whether to use local or cloud ChromaDB based on the presence of `CHROMA_API_KEY`.
+**First run:** if `ORQ_KNOWLEDGE_BASE_ID` is not set in `.env`, `make setup-workspace`
+should have created it for you already. If you skipped setup-workspace, `ingest-kb`
+will auto-create a KB and print its ID — paste it into `.env` to reuse on subsequent runs.
+
+### Inspecting ingested chunks
+
+After ingestion, open the Knowledge Base in the orq.ai Studio to browse each
+datasource (one per PDF) and inspect individual chunks with their metadata.
+
+![Knowledge Base chunks](media/kb_chunks.png)
+
+### Testing Knowledge Base search
+
+Use the built-in search playground to verify retrieval quality — tweak
+hybrid/vector/keyword modes and thresholds — before wiring the KB to the agent.
+
+![Knowledge Base search playground](media/kb_search_test.png)
+
+## Observability
+
+Every LangGraph execution (from the Chainlit UI, eval runs, or direct
+invocation) is traced to the orq.ai Studio via OpenTelemetry. The full graph
+tree is captured — nodes, LLM calls, tool executions, and Knowledge Base
+retrievals — with token usage and cost per step.
+
+See [`src/assistant/tracing.py`](src/assistant/tracing.py) for the OTEL setup
+that makes this work.
+
+### Trace tree view
+
+Drill into a single run to inspect inputs, outputs, token usage, and cost at
+every step of the LangGraph execution.
+
+![Trace details view](media/traces_details_view.png)
+
+### Timeline view
+
+View execution as a timeline to spot bottlenecks and measure step durations.
+
+![Trace timeline view](media/traces_rag_timeline.png)
+
+### Thread view
+
+Follow the conversation as a message thread to review how the agent reasoned
+through the problem.
+
+![Trace thread view](media/traces_thread_view.png)
 
 ## Tests, Continuous Integration and Evals
 
@@ -214,11 +287,16 @@ For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).
 
 ## Troubleshooting
 
-### Local Development Issues
+**First step:** run `make doctor` — it checks every moving piece of the setup
+(env vars, orq.ai reachability, KB, prompt, SQLite, test search) and prints a
+clear remediation for each failure.
 
-**Database issues:**
+For known pitfalls with workarounds (SDK drift, OTEL flushing, KB quirks,
+dotenv parsing, etc.), see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+**Missing data:**
 ```bash
-make setup-db  # Create databases (sqlite and chromadb)
+make ingest-data  # Load the SQLite database and ingest PDFs into the orq.ai Knowledge Base
 ```
 ---
 

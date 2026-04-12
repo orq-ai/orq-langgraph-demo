@@ -1,6 +1,6 @@
 # Basic Reference RAG Implementation - Simple Makefile
 
-.PHONY: help install lint format check tests clean run dev setup setup-structured-db setup-embeddings-db setup-db evals-upload-dataset
+.PHONY: help install lint format check tests clean run dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -35,17 +35,23 @@ run: ## Run the Chainlit web interface
 dev: ## Run LangGraph Studio for development
 	uv run langgraph dev
 
-# Database setup
-setup-structured-db: ## Initialize databases with sample data
+# orq.ai workspace bootstrap (first-run)
+setup-workspace: ## Bootstrap orq.ai workspace: create KB, system prompt, and eval dataset (idempotent)
+	uv run python scripts/setup_orq_workspace.py
+
+# Diagnostics
+doctor: ## Check that everything is wired up correctly (env, orq.ai, data, deps)
+	uv run python scripts/doctor.py
+
+# Data ingestion
+ingest-sql: ## Load the SQLite sales database from the sample CSV
 	uv run python scripts/structured_data_ingestion_pipeline.py
 
-# Embeddings setup
-setup-embeddings-db: ## Initialize databases with sample data
+ingest-kb: ## Ingest PDFs into the orq.ai Knowledge Base (requires ORQ_API_KEY)
 	uv run python scripts/unstructured_data_ingestion_pipeline.py
 
-
-# All setup
-setup-db: setup-structured-db setup-embeddings-db
+# Run both ingestion steps
+ingest-data: ingest-sql ingest-kb ## Ingest sales data + PDFs into their respective stores
 
 # Evaluation pipeline
 evals-upload-dataset: ## Upload evaluation dataset to orq.ai
@@ -69,16 +75,16 @@ precommit: ## Run pre-commit on all files
 	uv run pre-commit run --all-files
 
 # Quick development workflow
-quick: clean lint format test ## Quick development check (clean, lint, format, test)
+quick: clean lint format tests ## Quick development check (clean, lint, format, tests)
 
 # First-time setup
 first-setup: ## Complete first-time setup
 	uv sync
 	uv run pre-commit install
-	python scripts/structured_data_ingestion_pipeline.py || echo "⚠️  Database setup skipped - run 'make setup-db' later"
-	python scripts/unstructured_data_ingestion_pipeline.py || echo "⚠️  Database setup skipped - run 'make setup-db' later"
+	uv run python scripts/structured_data_ingestion_pipeline.py || echo "⚠️  SQLite ingestion skipped - run 'make ingest-sql' later"
+	uv run python scripts/unstructured_data_ingestion_pipeline.py || echo "⚠️  KB ingestion skipped - run 'make ingest-kb' later"
 	@echo ""
 	@echo "🎉 Setup complete! Next steps:"
 	@echo "   make run    # Start the web interface"
 	@echo "   make dev    # Start LangGraph Studio"
-	@echo "   make test   # Run tests"
+	@echo "   make tests  # Run tests"

@@ -1,4 +1,17 @@
-"""Default prompts used by the agent."""
+"""Default prompts used by the agent.
+
+The strings defined here are the canonical fallbacks used when orq.ai is
+unreachable or `ORQ_SYSTEM_PROMPT_ID` is not configured. When configured,
+`get_system_prompt()` fetches the latest published version from the orq.ai
+Studio so prompts can be iterated on without code changes.
+"""
+
+import logging
+import os
+import re
+from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 # CONTEXT #
@@ -119,3 +132,85 @@ Your response should:
 Example response structure:
 "I understand you're asking about [topic], but I'm specifically designed to help with Toyota and Lexus vehicle information. I can assist you with topics like vehicle specifications, maintenance schedules, warranty information, sales data, model comparisons, or service procedures. Is there anything about Toyota or Lexus vehicles I can help you with instead?"
 """
+
+
+def _extract_system_message(body: dict) -> str:
+    """Extract the system message text from an orq.ai prompts retrieve response.
+
+    Response shape (from GET /v2/prompts/{id}):
+        body["prompt"]["messages"][i]["role"] == "system"
+        body["prompt"]["messages"][i]["content"]  # str or list of content parts
+    """
+    prompt_block = body.get("prompt") or body.get("prompt_config") or {}
+    messages = prompt_block.get("messages") or []
+    for message in messages:
+        if message.get("role") != "system":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        # Structured content: list of content parts with `text` fields
+        if isinstance(content, list):
+            parts = [p.get("text", "") for p in content if isinstance(p, dict)]
+            joined = "\n".join(p for p in parts if p)
+            if joined:
+                return joined
+        return str(content) if content is not None else ""
+
+    raise ValueError("No system message found in orq.ai prompt response")
+
+
+def _convert_template_braces(text: str) -> str:
+    """Convert orq.ai `{{var}}` templating to Python `str.format()` `{var}` syntax.
+
+    The existing callers use `prompt.format(system_time=..., logic=...)` so we
+    keep that contract and normalize the fetched template on the way in.
+    """
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}", r"{\1}", text)
+
+
+@lru_cache(maxsize=1)
+def get_system_prompt() -> str:
+    """Return the system prompt, fetching from orq.ai when configured.
+
+    Cached per-process so we hit orq.ai once at startup, not on every graph
+    invocation. Falls back to the hardcoded SYSTEM_PROMPT if ORQ_API_KEY or
+    ORQ_SYSTEM_PROMPT_ID are unset, or if the fetch fails for any reason.
+
+    Uses raw HTTP because the installed orq-ai-sdk's prompt retrieve response
+    model is out of sync with the API (expects `prompt_config`, API returns
+    `prompt`).
+    """
+    from core.settings import settings
+
+    if not settings.ORQ_SYSTEM_PROMPT_ID:
+        logger.info("ORQ_SYSTEM_PROMPT_ID not set — using local SYSTEM_PROMPT fallback")
+        return SYSTEM_PROMPT
+
+    api_key = os.environ.get("ORQ_API_KEY")
+    if not api_key:
+        logger.warning("ORQ_API_KEY not set — using local SYSTEM_PROMPT fallback")
+        return SYSTEM_PROMPT
+
+    try:
+        import httpx
+
+        response = httpx.get(
+            f"https://api.orq.ai/v2/prompts/{settings.ORQ_SYSTEM_PROMPT_ID}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        body = response.json()
+        text = _extract_system_message(body)
+        text = _convert_template_braces(text)
+        logger.info(
+            f"Fetched system prompt from orq.ai (id={settings.ORQ_SYSTEM_PROMPT_ID}, "
+            f"{len(text)} chars)"
+        )
+        return text
+    except Exception as e:
+        logger.warning(
+            f"Failed to fetch system prompt from orq.ai, using local fallback: {e}"
+        )
+        return SYSTEM_PROMPT

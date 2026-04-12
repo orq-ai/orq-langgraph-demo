@@ -1,13 +1,11 @@
-## Toyota/Lexus Assistant
+## Hybrid Data Agent
 
-Welcome to the Toyota/Lexus Assistant. A proof-of-concept agentic system that helps answer automotive industry questions by combining structured sales data and unstructured documents like owner manuals.
+Welcome to the Hybrid Data Agent — a reference implementation of a LangGraph agent wired to the orq.ai platform. This proof-of-concept answers questions that require both structured and unstructured data by combining sales records (SQLite) with manuals and contracts (orq.ai Knowledge Base) — all managed end-to-end through orq.ai.
 
 ### What This Assistant Can Do
 
-This POC demonstrates an agent that can:
-
 - **Query Sales Data**: Answer questions about vehicle sales, models, countries, and order types using SQL
-- **Search Documents**: Extract information from contracts, warranty policies, and owner's manuals using RAG
+- **Search Documents**: Extract information from contracts, warranty policies, and owner's manuals via the orq.ai Knowledge Base
 - **Hybrid Analysis**: Combine both data sources to answer complex questions and get insights
 
 ### Example Questions You Can Ask
@@ -21,10 +19,12 @@ This POC demonstrates an agent that can:
 
 This assistant uses:
 - **LangGraph Agent** with conditional routing and safety guardrails
-- **Question Analysis and Routing** to classify questions as Toyota-related, off-topic, or need clarification
-- **OpenAI Moderation** for content safety filtering
+- **orq.ai AI Router** for LLM calls (cost tracking, fallbacks, multi-provider access)
+- **orq.ai Knowledge Base** for managed document storage, embeddings, and vector search
+- **orq.ai Prompts** for versioned system prompt management
+- **orq.ai Traces** (via OpenTelemetry) for end-to-end observability
 - **SQL Tools** for structured sales data queries
-- **RAG Tools** for unstructured document search
+- **OpenAI Moderation** for content safety filtering
 
 ![Agent Architecture](https://rag-reference-demo.onrender.com/public/agent_architecture.png)
 

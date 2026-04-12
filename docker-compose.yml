@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  toyota-rag-assistant:
+  hybrid-data-agent:
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,7 +13,6 @@ services:
       # Optional: Mount data directories if you want to persist data
       - ./data:/app/data
       - ./docs:/app/docs
-      - ./chroma_db:/app/chroma_db
     environment:
       - CHAINLIT_HOST=0.0.0.0
       - CHAINLIT_PORT=8000
