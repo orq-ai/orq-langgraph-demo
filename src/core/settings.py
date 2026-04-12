@@ -55,6 +55,12 @@ class Settings(BaseSettings):
         env="ORQ_SAFETY_EVALUATOR_ID",
     )
 
+    ORQ_SOURCE_CITATIONS_EVALUATOR_ID: str = Field(
+        default="",
+        description="orq.ai evaluator ID for the source-citations Python evaluator used in the eval pipeline",
+        env="ORQ_SOURCE_CITATIONS_EVALUATOR_ID",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",

@@ -36,6 +36,7 @@ from evaluatorq import DataPoint, DatasetIdInput, EvaluationResult, evaluatorq, 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
 from core.settings import settings  # noqa: E402
+from orq_scorers import source_citations_scorer  # noqa: E402
 
 
 def extract_tools_from_messages(messages: List[Any]) -> List[str]:
@@ -194,6 +195,7 @@ async def run_evaluation(dataset_id: str = None, from_file: bool = False):
         evaluators=[
             {"name": "tool-accuracy", "scorer": tool_accuracy_scorer},
             {"name": "category-accuracy", "scorer": category_accuracy_scorer},
+            {"name": "source-citations", "scorer": source_citations_scorer},
         ],
         path=settings.ORQ_PROJECT_NAME,
     )

@@ -45,6 +45,7 @@ from langchain_core.messages import HumanMessage  # noqa: E402
 
 from assistant.prompts import fetch_prompt_by_id  # noqa: E402
 from core.settings import settings  # noqa: E402
+from orq_scorers import source_citations_scorer  # noqa: E402
 
 
 # Filled in by main() before the jobs run
@@ -223,6 +224,7 @@ async def run_experiment() -> None:
         evaluators=[
             {"name": "tool-accuracy", "scorer": tool_accuracy_scorer},
             {"name": "category-accuracy", "scorer": category_accuracy_scorer},
+            {"name": "source-citations", "scorer": source_citations_scorer},
         ],
         path=settings.ORQ_PROJECT_NAME,
         description="A/B test: default vs concise system prompt",

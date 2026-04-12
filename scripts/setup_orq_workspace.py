@@ -44,9 +44,27 @@ KB_KEY = "hybrid-data-agent-kb"
 PROMPT_KEY = "hybrid-data-agent-system-prompt"
 PROMPT_KEY_VARIANT_B = "hybrid-data-agent-system-prompt-variant-b"
 SAFETY_EVAL_KEY = "hybrid-data-agent-safety"
+SOURCE_CITATIONS_EVAL_KEY = "source-citations-present"
 AGENT_KEY = "hybrid-data-agent-managed"
 DATASET_KEY = "hybrid-data-agent-tool-calling-evals"
 DATASET_JSONL = "evals/datasets/tool_calling_evals.jsonl"
+
+# Python evaluator that checks whether the agent response includes at least
+# one source URL. Tunable in the Studio without code changes.
+SOURCE_CITATIONS_CODE = """import re
+
+def evaluate(log):
+    output = log.get("output", "")
+    if not output:
+        return False
+
+    # Find URLs in the output
+    url_pattern = r'https?://[^\\s)\\]\\}>\\"\\']+'
+    urls = re.findall(url_pattern, output)
+
+    # Must have at least 1 source URL
+    return len(urls) >= 1
+"""
 
 AGENT_INSTRUCTIONS = """You are an AI assistant for Toyota and Lexus vehicle information, focused on documents (manuals, warranties, contracts).
 
@@ -167,7 +185,7 @@ def setup_project(api_key: str, name: str) -> None:
     The `/projects` endpoint returns a flat array (not paginated), so we don't
     reuse `_paginate` here.
     """
-    print(f"\n[1/7] Project '{name}'")
+    print(f"\n[1/8] Project '{name}'")
 
     response = _get(api_key, "/projects")
     response.raise_for_status()
@@ -194,7 +212,7 @@ def setup_project(api_key: str, name: str) -> None:
 
 def setup_knowledge_base(api_key: str, path: str) -> str:
     """Find or create the Knowledge Base. Returns its ID."""
-    print(f"\n[2/7] Knowledge Base '{KB_KEY}'")
+    print(f"\n[2/8] Knowledge Base '{KB_KEY}'")
 
     existing = _paginate(api_key, "/knowledge", lambda kb: kb.get("key") == KB_KEY)
     if existing:
@@ -256,7 +274,7 @@ def _create_prompt(
 
 def setup_system_prompt(api_key: str, path: str) -> str:
     """Find or create the default system prompt. Returns its ID."""
-    print(f"\n[3/7] System prompt '{PROMPT_KEY}'")
+    print(f"\n[3/8] System prompt '{PROMPT_KEY}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
@@ -279,7 +297,7 @@ def setup_system_prompt(api_key: str, path: str) -> str:
 
 def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
     """Find or create the 'variant B' system prompt used for A/B testing. Returns its ID."""
-    print(f"\n[4/7] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
+    print(f"\n[4/8] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B
@@ -307,7 +325,7 @@ def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
 
 def setup_safety_evaluator(api_key: str, path: str) -> str:
     """Find or create the LLM safety evaluator used as an input guardrail. Returns its ID."""
-    print(f"\n[5/7] Safety evaluator '{SAFETY_EVAL_KEY}'")
+    print(f"\n[5/8] Safety evaluator '{SAFETY_EVAL_KEY}'")
 
     existing = _paginate(
         api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY
@@ -342,6 +360,42 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Source citations evaluator (used in evaluatorq eval pipeline)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def setup_source_citations_evaluator(api_key: str, path: str) -> str:
+    """Find or create the Python evaluator that checks for source URLs in responses."""
+    print(f"\n[6/8] Source citations evaluator '{SOURCE_CITATIONS_EVAL_KEY}'")
+
+    existing = _paginate(
+        api_key, "/evaluators", lambda e: e.get("key") == SOURCE_CITATIONS_EVAL_KEY
+    )
+    if existing:
+        eval_id = _id(existing)
+        print(f"  → reusing existing source-citations evaluator: {eval_id}")
+        return eval_id
+
+    payload = {
+        "type": "python_eval",
+        "key": SOURCE_CITATIONS_EVAL_KEY,
+        "path": path,
+        "description": "Checks whether the agent response includes source URLs to back up its claims. Research responses without citations cannot be verified.",
+        "code": SOURCE_CITATIONS_CODE,
+        "output_type": "boolean",
+    }
+    response = _post(api_key, "/evaluators", payload)
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Failed to create source-citations evaluator: {response.text}"
+        )
+    body = response.json()
+    eval_id = _id(body)
+    print(f"  → created new source-citations evaluator: {eval_id}")
+    return eval_id
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Managed orq.ai Agent (alternative to the LangGraph agent in src/assistant/)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -353,7 +407,7 @@ def setup_managed_agent(api_key: str, path: str, kb_id: str) -> str:
     sample data, but orchestrated entirely via the orq.ai platform instead of
     Python code. See docs/comparing-approaches.md for the full rundown.
     """
-    print(f"\n[6/7] Managed Agent '{AGENT_KEY}'")
+    print(f"\n[7/8] Managed Agent '{AGENT_KEY}'")
 
     # Agents list endpoint returns data at top-level or under "data" depending
     # on workspace. Use the paginator like other lookups.
@@ -424,7 +478,7 @@ def _load_datapoints() -> List[Dict[str, Any]]:
 
 def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
-    print(f"\n[7/7] Evaluation dataset '{DATASET_KEY}'")
+    print(f"\n[8/8] Evaluation dataset '{DATASET_KEY}'")
 
     existing = _paginate(
         api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY
@@ -479,6 +533,7 @@ def main() -> int:
         prompt_id = setup_system_prompt(api_key, project_path)
         prompt_id_variant_b = setup_system_prompt_variant_b(api_key, project_path)
         safety_eval_id = setup_safety_evaluator(api_key, project_path)
+        source_citations_eval_id = setup_source_citations_evaluator(api_key, project_path)
         agent_id = setup_managed_agent(api_key, project_path, kb_id)
         dataset_id = setup_dataset(api_key, project_path)
     except Exception as e:
@@ -499,6 +554,7 @@ def main() -> int:
     print(f'ORQ_SYSTEM_PROMPT_ID="{prompt_id}"')
     print(f'ORQ_SYSTEM_PROMPT_ID_VARIANT_B="{prompt_id_variant_b}"')
     print(f'ORQ_SAFETY_EVALUATOR_ID="{safety_eval_id}"')
+    print(f'ORQ_SOURCE_CITATIONS_EVALUATOR_ID="{source_citations_eval_id}"')
     print(f'ORQ_MANAGED_AGENT_KEY="{AGENT_KEY}"')
     print(f"# Dataset ID (not read by the app, informational only):")
     print(f"# ORQ_DATASET_ID={dataset_id}")
