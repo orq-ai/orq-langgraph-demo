@@ -285,6 +285,71 @@ For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).
 
 ![Evaluating Tool Calling](media/tool-calling-evals.png)
 
+## Swap models via the AI Router
+
+All LLM calls are routed through `https://api.orq.ai/v2/router`, which is
+OpenAI-protocol-compatible. Swapping providers is a **one-line change** in
+`.env` — no code modifications, no re-deploy:
+
+```bash
+# Default
+DEFAULT_MODEL="openai/gpt-4.1-mini"
+
+# Claude
+DEFAULT_MODEL="anthropic/claude-sonnet-4-5"
+
+# Groq (Llama, ultra-fast)
+DEFAULT_MODEL="groq/llama-3.3-70b-versatile"
+
+# Gemini
+DEFAULT_MODEL="gemini/gemini-2.5-flash"
+```
+
+Restart `make run` and the agent uses the new provider. The orq.ai Router
+handles authentication, protocol translation, cost tracking, and provider
+fallbacks transparently. The trace for each run will show the exact model
+name so you can compare latency, cost, and quality side-by-side in the
+Traces tab.
+
+This works because [`src/assistant/utils.py`](src/assistant/utils.py) uses
+`ChatOpenAI` with the router URL regardless of the fully-specified name:
+
+```python
+return ChatOpenAI(
+    model=fully_specified_name,   # e.g. "anthropic/claude-sonnet-4-5"
+    api_key=os.getenv("ORQ_API_KEY"),
+    base_url="https://api.orq.ai/v2/router",
+)
+```
+
+## Prompt A/B testing
+
+The system prompt is managed in orq.ai, so you can A/B test different versions
+against the evaluation dataset without a code change. Two variants are
+bootstrapped by `make setup-workspace`:
+
+- **Variant A** — the canonical, verbose prompt with grounding rules and response guidelines
+- **Variant B** — a deliberately concise version that strips the verbose sections
+
+Run the A/B experiment:
+
+```bash
+make evals-compare-prompts
+```
+
+This runs the same 15 evaluation cases twice — once per variant — using
+evaluatorq's multi-job mode. Both scorers (`tool-accuracy`, `category-accuracy`)
+are applied to both variants, and the results sync to orq.ai Studio as a
+single experiment with two columns.
+
+**To iterate on a variant:** edit it directly in the orq.ai Studio
+(`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), publish, then
+re-run `make evals-compare-prompts`. No code change or deploy required — the
+experiment picks up the latest published version.
+
+See [`evals/run_prompt_experiment.py`](evals/run_prompt_experiment.py) for the
+job definitions and scorer wiring.
+
 ## Troubleshooting
 
 **First step:** run `make doctor` — it checks every moving piece of the setup

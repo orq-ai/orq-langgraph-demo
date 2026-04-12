@@ -40,8 +40,25 @@ API_BASE = "https://api.orq.ai/v2"
 
 KB_KEY = "hybrid-data-agent-kb"
 PROMPT_KEY = "hybrid-data-agent-system-prompt"
+PROMPT_KEY_VARIANT_B = "hybrid-data-agent-system-prompt-variant-b"
 DATASET_KEY = "hybrid-data-agent-tool-calling-evals"
 DATASET_JSONL = "evals/datasets/tool_calling_evals.jsonl"
+
+# Variant B: a deliberately concise version of the default system prompt.
+# Used by `make evals-compare-prompts` to A/B test whether stripping the
+# verbose grounding/styling guidance affects tool-calling accuracy.
+VARIANT_B_CONTENT = """You are an AI assistant for Toyota and Lexus vehicle information, sales data, and customer support.
+
+You have access to SQL tools for sales data and semantic search tools for documents (manuals, warranties, contracts).
+
+Rules:
+- Base answers only on retrieved data — never invent facts.
+- If data is missing, say so instead of guessing.
+- Cite the source document or data table when relevant.
+- Use markdown for structure. Be concise.
+
+Current system time: {{system_time}}
+"""
 
 EMBEDDING_MODEL = f"openai/{settings.EMBEDDING_MODEL}"
 PROMPT_MODEL = settings.DEFAULT_MODEL
@@ -113,7 +130,7 @@ def setup_project(api_key: str, name: str) -> None:
     The `/projects` endpoint returns a flat array (not paginated), so we don't
     reuse `_paginate` here.
     """
-    print(f"\n[1/4] Project '{name}'")
+    print(f"\n[1/5] Project '{name}'")
 
     response = _get(api_key, "/projects")
     response.raise_for_status()
@@ -140,7 +157,7 @@ def setup_project(api_key: str, name: str) -> None:
 
 def setup_knowledge_base(api_key: str, path: str) -> str:
     """Find or create the Knowledge Base. Returns its ID."""
-    print(f"\n[2/4] Knowledge Base '{KB_KEY}'")
+    print(f"\n[2/5] Knowledge Base '{KB_KEY}'")
 
     existing = _paginate(api_key, "/knowledge", lambda kb: kb.get("key") == KB_KEY)
     if existing:
@@ -170,25 +187,17 @@ def setup_knowledge_base(api_key: str, path: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def setup_system_prompt(api_key: str, path: str) -> str:
-    """Find or create the system prompt. Returns its ID."""
-    print(f"\n[3/4] System prompt '{PROMPT_KEY}'")
-
-    existing = _paginate(
-        api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
-    )
-    if existing:
-        prompt_id = _id(existing)
-        print(f"  → reusing existing prompt: {prompt_id}")
-        return prompt_id
-
-    # Create new — convert Python `.format()` `{var}` placeholders to orq.ai `{{var}}`
-    template = re.sub(r"(?<!\{)\{(\w+)\}(?!\})", r"{{\1}}", SYSTEM_PROMPT)
+def _create_prompt(
+    api_key: str, path: str, display_name: str, description: str, content: str
+) -> str:
+    """Create a prompt via raw HTTP (SDK has out-of-sync `prompt_config`)."""
+    # Convert Python `.format()` `{var}` placeholders to orq.ai `{{var}}` syntax
+    template = re.sub(r"(?<!\{)\{(\w+)\}(?!\})", r"{{\1}}", content)
 
     payload = {
-        "display_name": PROMPT_KEY,
+        "display_name": display_name,
         "path": path,
-        "description": "Main system prompt for the Hybrid Data Agent (managed via orq.ai)",
+        "description": description,
         "prompt": {
             "model": PROMPT_MODEL,
             "model_type": "chat",
@@ -200,10 +209,57 @@ def setup_system_prompt(api_key: str, path: str) -> str:
     }
     response = _post(api_key, "/prompts", payload)
     if response.status_code >= 400:
-        raise RuntimeError(f"Failed to create system prompt: {response.text}")
+        raise RuntimeError(f"Failed to create prompt '{display_name}': {response.text}")
     body = response.json()
     prompt_id = _id(body)
+    if not prompt_id:
+        raise RuntimeError(f"Could not extract prompt ID from response: {body}")
+    return prompt_id
+
+
+def setup_system_prompt(api_key: str, path: str) -> str:
+    """Find or create the default system prompt. Returns its ID."""
+    print(f"\n[3/5] System prompt '{PROMPT_KEY}'")
+
+    existing = _paginate(
+        api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
+    )
+    if existing:
+        prompt_id = _id(existing)
+        print(f"  → reusing existing prompt: {prompt_id}")
+        return prompt_id
+
+    prompt_id = _create_prompt(
+        api_key,
+        path,
+        PROMPT_KEY,
+        "Main system prompt for the Hybrid Data Agent (managed via orq.ai)",
+        SYSTEM_PROMPT,
+    )
     print(f"  → created new prompt: {prompt_id}")
+    return prompt_id
+
+
+def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
+    """Find or create the 'variant B' system prompt used for A/B testing. Returns its ID."""
+    print(f"\n[4/5] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
+
+    existing = _paginate(
+        api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B
+    )
+    if existing:
+        prompt_id = _id(existing)
+        print(f"  → reusing existing variant B prompt: {prompt_id}")
+        return prompt_id
+
+    prompt_id = _create_prompt(
+        api_key,
+        path,
+        PROMPT_KEY_VARIANT_B,
+        "Variant B of the Hybrid Data Agent system prompt — concise version for A/B testing",
+        VARIANT_B_CONTENT,
+    )
+    print(f"  → created new variant B prompt: {prompt_id}")
     return prompt_id
 
 
@@ -240,7 +296,7 @@ def _load_datapoints() -> List[Dict[str, Any]]:
 
 def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
-    print(f"\n[4/4] Evaluation dataset '{DATASET_KEY}'")
+    print(f"\n[5/5] Evaluation dataset '{DATASET_KEY}'")
 
     existing = _paginate(
         api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY
@@ -293,6 +349,7 @@ def main() -> int:
         setup_project(api_key, project_path)
         kb_id = setup_knowledge_base(api_key, project_path)
         prompt_id = setup_system_prompt(api_key, project_path)
+        prompt_id_variant_b = setup_system_prompt_variant_b(api_key, project_path)
         dataset_id = setup_dataset(api_key, project_path)
     except Exception as e:
         print(f"\n❌ Bootstrap failed: {e}")
@@ -310,6 +367,7 @@ def main() -> int:
     print("# ───────────────────────────────────────────────────────────────")
     print(f'ORQ_KNOWLEDGE_BASE_ID="{kb_id}"')
     print(f'ORQ_SYSTEM_PROMPT_ID="{prompt_id}"')
+    print(f'ORQ_SYSTEM_PROMPT_ID_VARIANT_B="{prompt_id_variant_b}"')
     print(f"# Dataset ID (not read by the app, informational only):")
     print(f"# ORQ_DATASET_ID={dataset_id}")
     print("# ───────────────────────────────────────────────────────────────")
@@ -318,6 +376,7 @@ def main() -> int:
     print("  1. Paste the block above into .env")
     print("  2. Run `make ingest-data` to load SQLite sales + upload PDFs to the KB")
     print("  3. Run `make run` to start the app")
+    print("  4. Run `make evals-compare-prompts` to A/B test the two system prompts")
     return 0
 
 

@@ -1,6 +1,6 @@
 # Plan: Manage prompts on orq.ai for versioning & A/B testing
 
-> **Status: Phase A complete** — `get_system_prompt()` fetcher with fallback is in `src/assistant/prompts.py`, wired via `default_factory` in `src/assistant/context.py`. Bootstrap handled by `scripts/setup_orq_workspace.py` (run via `make setup-workspace`). Phase B (remaining 3 prompts + environment tags + A/B experiments) not yet started.
+> **Status: Phase A complete, Phase B partially complete** — `get_system_prompt()` + `fetch_prompt_by_id()` live in `src/assistant/prompts.py`, wired via `default_factory` in `src/assistant/context.py`. Bootstrap creates two prompt variants via `make setup-workspace`. A/B experiment runs via `make evals-compare-prompts` → `evals/run_prompt_experiment.py`. Still TODO for full Phase B: migrate the remaining 3 prompts (ROUTER, MORE_INFO, GENERAL) and add environment tags.
 
 ## Context
 

@@ -169,17 +169,45 @@ def _convert_template_braces(text: str) -> str:
     return re.sub(r"\{\{\s*(\w+)\s*\}\}", r"{\1}", text)
 
 
-@lru_cache(maxsize=1)
-def get_system_prompt() -> str:
-    """Return the system prompt, fetching from orq.ai when configured.
+@lru_cache(maxsize=8)
+def fetch_prompt_by_id(prompt_id: str) -> str:
+    """Fetch a specific prompt from orq.ai by its ID.
 
-    Cached per-process so we hit orq.ai once at startup, not on every graph
-    invocation. Falls back to the hardcoded SYSTEM_PROMPT if ORQ_API_KEY or
-    ORQ_SYSTEM_PROMPT_ID are unset, or if the fetch fails for any reason.
+    Results are cached per-process (per ID) so repeated calls for the same
+    prompt don't hit the network. Raises on any error — callers should catch
+    and fall back as appropriate.
 
     Uses raw HTTP because the installed orq-ai-sdk's prompt retrieve response
     model is out of sync with the API (expects `prompt_config`, API returns
     `prompt`).
+    """
+    import httpx
+
+    api_key = os.environ.get("ORQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("ORQ_API_KEY is not set")
+
+    response = httpx.get(
+        f"https://api.orq.ai/v2/prompts/{prompt_id}",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    body = response.json()
+    text = _extract_system_message(body)
+    text = _convert_template_braces(text)
+    logger.info(f"Fetched prompt from orq.ai (id={prompt_id}, {len(text)} chars)")
+    return text
+
+
+def get_system_prompt() -> str:
+    """Return the default system prompt, fetching from orq.ai when configured.
+
+    Falls back to the hardcoded SYSTEM_PROMPT if ORQ_API_KEY or
+    ORQ_SYSTEM_PROMPT_ID are unset, or if the fetch fails for any reason.
+
+    This is the entry point used by `Context.system_prompt` via default_factory.
+    For A/B testing a specific prompt version, call `fetch_prompt_by_id()` directly.
     """
     from core.settings import settings
 
@@ -187,28 +215,8 @@ def get_system_prompt() -> str:
         logger.info("ORQ_SYSTEM_PROMPT_ID not set — using local SYSTEM_PROMPT fallback")
         return SYSTEM_PROMPT
 
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        logger.warning("ORQ_API_KEY not set — using local SYSTEM_PROMPT fallback")
-        return SYSTEM_PROMPT
-
     try:
-        import httpx
-
-        response = httpx.get(
-            f"https://api.orq.ai/v2/prompts/{settings.ORQ_SYSTEM_PROMPT_ID}",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30.0,
-        )
-        response.raise_for_status()
-        body = response.json()
-        text = _extract_system_message(body)
-        text = _convert_template_braces(text)
-        logger.info(
-            f"Fetched system prompt from orq.ai (id={settings.ORQ_SYSTEM_PROMPT_ID}, "
-            f"{len(text)} chars)"
-        )
-        return text
+        return fetch_prompt_by_id(settings.ORQ_SYSTEM_PROMPT_ID)
     except Exception as e:
         logger.warning(
             f"Failed to fetch system prompt from orq.ai, using local fallback: {e}"

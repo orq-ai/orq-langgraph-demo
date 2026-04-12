@@ -43,6 +43,12 @@ class Settings(BaseSettings):
         env="ORQ_SYSTEM_PROMPT_ID",
     )
 
+    ORQ_SYSTEM_PROMPT_ID_VARIANT_B: str = Field(
+        default="",
+        description="orq.ai prompt ID for the 'variant B' system prompt used by `make evals-compare-prompts`",
+        env="ORQ_SYSTEM_PROMPT_ID_VARIANT_B",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",

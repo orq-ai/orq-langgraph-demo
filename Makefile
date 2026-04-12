@@ -1,6 +1,6 @@
 # Basic Reference RAG Implementation - Simple Makefile
 
-.PHONY: help install lint format check tests clean run dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset
+.PHONY: help install lint format check tests clean run dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset evals-compare-prompts
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -59,6 +59,9 @@ evals-upload-dataset: ## Upload evaluation dataset to orq.ai
 
 evals-run: ## Run evaluation pipeline using evaluatorq
 	uv run python evals/run_evaluation_pipeline.py --from-file
+
+evals-compare-prompts: ## A/B test the two system prompt variants against the eval dataset
+	uv run python evals/run_prompt_experiment.py
 
 evals-help: ## Show evaluation script help
 	uv run python evals/run_evaluation_pipeline.py --help
