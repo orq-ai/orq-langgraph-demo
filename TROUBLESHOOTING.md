@@ -154,6 +154,87 @@ body.RetrievalConfig1.type
 
 ---
 
+## Evaluators
+
+### Python evaluator returning `value: null` with `output_type: "number"`
+
+**Symptom:** You created a Python evaluator via POST `/v2/evaluators` with
+`type: python_eval` and `code: "def evaluate(log): ..."`, and every invoke
+returns `{"type":"number","value":null}` regardless of what your code returns.
+
+**Root cause:** If you don't specify `output_type` on create, the API defaults
+to `"number"`. When your code returns a boolean, the server tries to coerce
+`True`/`False` to a number and silently yields `null`.
+
+**Fix:** Always set `output_type: "boolean"` (or `"number"`, or `"string"`)
+explicitly in the create payload:
+```python
+payload = {
+    "type": "python_eval",
+    "key": "...",
+    "code": "...",
+    "output_type": "boolean",  # ← required for bool-returning evaluators
+}
+```
+
+Existing evaluators can be patched: `PATCH /v2/evaluators/{id}` with
+`{"output_type": "boolean"}`.
+
+### LLM evaluator requires `mode: "single"` and other fields missing from SDK
+
+**Symptom:**
+```
+ZodError: No matching discriminator `mode`
+```
+
+**Root cause:** The `/v2/evaluators` endpoint expects `llm_eval` payloads to
+include `mode: "single"`, `model`, `prompt`, `repetitions: 1`, and optionally
+`guardrail_config`. The installed SDK's typed model doesn't require these.
+
+**Fix:** Build the payload manually via raw HTTP with all required fields.
+See [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
+`_create_llm_evaluator`.
+
+### LLM evaluator returns `value: None` with an internal error
+
+**Symptom:** During long eval runs the evaluator intermittently returns:
+```json
+{"value": {"value": null, "explanation": "Error during single evaluation execution: ..."}}
+```
+The error message typically includes "400 We could not parse the JSON body"
+from OpenAI.
+
+**Root cause:** Upstream provider errors (rate limits, transient JSON encoding
+issues in the evaluator runtime) surface as `value: None` while the evaluator
+envelope still returns HTTP 200.
+
+**Fix:** Treat `value: None` as a **fail-open** result in your scorer —
+returning an error value blocks users on transient issues. See
+[`src/assistant/guardrails.py`](src/assistant/guardrails.py) `OrqSafetyGuardrail.ainvoke`
+for the pattern: log at debug and return SAFE.
+
+### Don't use a Python regex evaluator for source-citation checking
+
+**Symptom:** A `source-citations-present` Python evaluator using
+`re.findall(r'https?://...')` reports red on every response even though the
+agent is clearly citing documents.
+
+**Root cause:** The agent cites by **document name** ("According to the
+Warranty Policy Appendix...") not URL. Regex misses this, so every response
+looks unattributed.
+
+**Fix:** Replace the Python evaluator with an **LLM judge** that understands
+attribution phrases and exempts pure refusals / clarifications. See
+[`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
+`SOURCE_CITATIONS_PROMPT` for the exact prompt, aligned with the system
+prompt's *Source Attribution* policy.
+
+General rule: **use Python evaluators for syntactic checks** (JSON validity,
+regex, length bounds) and **LLM evaluators for semantic checks** (grounding,
+attribution, tone, relevance).
+
+---
+
 ## Datasets
 
 ### Inputs must be flat primitives

@@ -167,13 +167,31 @@ Defined in `evals/run_evaluation_pipeline.py` — stays local because it needs
 the agent's `tools_called` output field which isn't part of the standard
 orq.ai Python evaluator log surface.
 
-### 2. Source Citations (orq.ai Python evaluator)
+### 2. Source Citations (orq.ai LLM evaluator)
 
-- **True** (green): Response contains at least one `https?://` URL
-- **False** (red): No source URL
+- **True** (green): The response either cites a source document (by name,
+  section, or URL), OR is purely conversational (clarification / refusal /
+  acknowledgment with no factual claims)
+- **False** (red): The response makes specific factual claims (numbers, dates,
+  specs, procedures, policy details) **without any attribution**
 
-Registered as a workspace Python evaluator `source-citations-present`
-(created by `make setup-workspace`). Invoked via `orq_scorers.py`.
+Registered as a workspace **LLM evaluator** `source-citations-present`
+(created by `make setup-workspace`). The prompt is aligned with the
+system prompt's *Source Attribution* policy, which instructs the agent
+to use phrases like *"According to the [Document Name]..."* or *"Based
+on the retrieved sales data..."* rather than URLs — our PDFs don't have
+canonical URLs.
+
+Originally this was a Python regex evaluator that looked for `https?://`
+URLs in the response. That was wrong for this agent: every response was
+red because the agent cites by document name, not URL. The LLM judge
+understands both forms and exempts pure refusals, so it actually tracks
+whether the agent follows its own attribution policy.
+
+Tune it in the orq.ai Studio — edit the prompt, click Publish, and the
+next eval run picks up the change. See
+[`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) for
+`SOURCE_CITATIONS_PROMPT`.
 
 ### 3. Response Grounding (orq.ai LLM evaluator)
 
