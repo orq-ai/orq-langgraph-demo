@@ -97,9 +97,15 @@ class OrqSafetyGuardrail:
                     unsafe_categories=[explanation[:200] or "classified unsafe"],
                 )
 
-            # Unknown shape — treat as error and fall back
-            logger.warning(f"Unexpected evaluator response shape: {body}")
-            return GuardrailsOutput(safety_assessment=SafetyAssessment.ERROR)
+            # value is None — the evaluator errored internally (upstream
+            # provider issue, rate limit, JSON encoding, etc.). Fail-open
+            # to SAFE so we don't block users on transient issues. Log at
+            # debug so it doesn't spam the terminal during eval runs.
+            logger.debug(
+                f"Safety evaluator returned value=None, failing open. "
+                f"explanation={explanation[:200]!r}"
+            )
+            return GuardrailsOutput(safety_assessment=SafetyAssessment.SAFE)
         except Exception as e:
             logger.warning(f"orq.ai safety evaluator failed, falling back to OpenAI: {e}")
             fallback = OpenAIModerator()

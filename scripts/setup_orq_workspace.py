@@ -51,21 +51,35 @@ AGENT_KEY = "hybrid-data-agent-managed"
 DATASET_KEY = "hybrid-data-agent-tool-calling-evals"
 DATASET_JSONL = "evals/datasets/tool_calling_evals.jsonl"
 
-# Python evaluator that checks whether the agent response includes at least
-# one source URL. Tunable in the Studio without code changes.
-SOURCE_CITATIONS_CODE = """import re
+# LLM evaluator: source-citations-present — checks if the response attributes
+# its factual claims to a source, aligned with the system prompt's
+# "Source Attribution" policy. Allows doc names, section references, and
+# attribution phrases ("According to...", "Based on..."). Does NOT require
+# URLs — our PDFs don't have canonical URLs.
+SOURCE_CITATIONS_PROMPT = """You are evaluating whether an assistant's response attributes its factual claims to a source, following the agent's source attribution policy.
 
-def evaluate(log):
-    output = log.get("output", "")
-    if not output:
-        return False
+Per the agent's policy:
+- When referencing specific procedures, specifications, or policies, the response should indicate the source document by name.
+- Acceptable attribution forms include: "According to the [Document Name]", "Based on the retrieved sales data", "Per the [Document Name]", "Source: [Document Name]", footnote-style references, markdown links, or raw URLs.
+- Attributions can name PDF documents (e.g. "Warranty Policy Appendix", "Yaris Cross user manual"), document sections, or data sources (e.g. "the sales database").
+- Pure conversational responses — clarification questions, refusals ("I don't have that information in my knowledge base"), polite acknowledgments — are EXEMPT from this requirement.
+- Responses that make only general claims without specific facts (numbers, dates, specs, procedures, policy details) are EXEMPT.
 
-    # Find URLs in the output
-    url_pattern = r'https?://[^\\s)\\]\\}>\\"\\']+'
-    urls = re.findall(url_pattern, output)
+A response PASSES (true) when:
+- It contains at least one factual claim AND at least one source attribution, OR
+- It is purely conversational / a refusal / a clarification (no factual claims made at all).
 
-    # Must have at least 1 source URL
-    return len(urls) >= 1
+A response FAILS (false) when:
+- It makes specific factual claims (numbers, dates, specs, procedures, policy details) WITHOUT any source attribution.
+- It presents general automotive knowledge as fact without tying it back to a retrieved document or data source.
+
+[QUESTION]
+{{log.input}}
+
+[RESPONSE]
+{{log.output}}
+
+Return ONLY `1` if the response PASSES, `0` if it FAILS. No prose, no explanation.
 """
 
 # LLM evaluator: response-grounding — checks if every claim in the response
@@ -479,34 +493,48 @@ def setup_hallucination_evaluator(api_key: str, path: str) -> str:
 
 
 def setup_source_citations_evaluator(api_key: str, path: str) -> str:
-    """Find or create the Python evaluator that checks for source URLs in responses."""
+    """Find or create the LLM evaluator that checks for source attribution in responses.
+
+    Replaced the earlier Python regex evaluator (URL-only check) with an LLM
+    judge aligned to the system prompt's "Source Attribution" policy. The LLM
+    can recognize phrases like "According to the Warranty Policy Appendix..."
+    that the regex couldn't match.
+
+    Migration: if an existing Python evaluator is found under the same key,
+    it's deleted first so the Studio doesn't end up with two evaluators
+    sharing a display name.
+    """
     print(f"\n[6/10] Source citations evaluator '{SOURCE_CITATIONS_EVAL_KEY}'")
 
     existing = _paginate(
         api_key, "/evaluators", lambda e: e.get("key") == SOURCE_CITATIONS_EVAL_KEY
     )
     if existing:
-        eval_id = _id(existing)
-        print(f"  → reusing existing source-citations evaluator: {eval_id}")
-        return eval_id
+        if existing.get("type") == "llm_eval":
+            eval_id = _id(existing)
+            print(f"  → reusing existing LLM evaluator: {eval_id}")
+            return eval_id
 
-    payload = {
-        "type": "python_eval",
-        "key": SOURCE_CITATIONS_EVAL_KEY,
-        "path": path,
-        "description": "Checks whether the agent response includes source URLs to back up its claims. Research responses without citations cannot be verified.",
-        "code": SOURCE_CITATIONS_CODE,
-        "output_type": "boolean",
-    }
-    response = _post(api_key, "/evaluators", payload)
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Failed to create source-citations evaluator: {response.text}"
+        # Stale python_eval from the previous implementation — delete it
+        old_id = _id(existing)
+        print(f"  → deleting stale python_eval '{SOURCE_CITATIONS_EVAL_KEY}' ({old_id})")
+        delete_response = httpx.delete(
+            f"{API_BASE}/evaluators/{old_id}",
+            headers=_headers(api_key),
+            timeout=15.0,
         )
-    body = response.json()
-    eval_id = _id(body)
-    print(f"  → created new source-citations evaluator: {eval_id}")
-    return eval_id
+        if delete_response.status_code >= 400 and delete_response.status_code != 404:
+            raise RuntimeError(
+                f"Failed to delete stale evaluator: {delete_response.text}"
+            )
+
+    return _create_llm_evaluator(
+        api_key,
+        SOURCE_CITATIONS_EVAL_KEY,
+        path,
+        "Checks whether the agent response attributes its factual claims to a source document, aligned with the system prompt's Source Attribution policy",
+        SOURCE_CITATIONS_PROMPT,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
