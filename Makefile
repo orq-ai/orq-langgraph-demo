@@ -1,6 +1,6 @@
 # Basic Reference RAG Implementation - Simple Makefile
 
-.PHONY: help install lint format check tests clean run dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset evals-compare-prompts
+.PHONY: help install lint format check tests clean run run-orq-agent dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset evals-compare-prompts evals-grow-from-traces
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -29,8 +29,11 @@ tests: ## Run tests with proper PYTHONPATH
 	PYTHONPATH=src uv run pytest tests/ -v
 
 # Application
-run: ## Run the Chainlit web interface
+run: ## Run the Chainlit web interface (LangGraph agent — Approach A)
 	uv run chainlit run src/chainlit_app.py
+
+run-orq-agent: ## Run the Chainlit web interface against the managed orq.ai Agent (Approach B)
+	uv run chainlit run src/chainlit_app_orq.py
 
 dev: ## Run LangGraph Studio for development
 	uv run langgraph dev
@@ -62,6 +65,14 @@ evals-run: ## Run evaluation pipeline using evaluatorq
 
 evals-compare-prompts: ## A/B test the two system prompt variants against the eval dataset
 	uv run python evals/run_prompt_experiment.py
+
+evals-grow-from-traces: ## Append new eval datapoints from exported traces JSON (pass FILE=path.json)
+	@if [ -z "$(FILE)" ]; then echo "Usage: make evals-grow-from-traces FILE=path/to/traces.json [APPLY=1]"; exit 1; fi
+	@if [ "$(APPLY)" = "1" ]; then \
+		uv run python scripts/grow_eval_dataset.py --from-file $(FILE) --apply; \
+	else \
+		uv run python scripts/grow_eval_dataset.py --from-file $(FILE); \
+	fi
 
 evals-help: ## Show evaluation script help
 	uv run python evals/run_evaluation_pipeline.py --help

@@ -44,8 +44,18 @@ KB_KEY = "hybrid-data-agent-kb"
 PROMPT_KEY = "hybrid-data-agent-system-prompt"
 PROMPT_KEY_VARIANT_B = "hybrid-data-agent-system-prompt-variant-b"
 SAFETY_EVAL_KEY = "hybrid-data-agent-safety"
+AGENT_KEY = "hybrid-data-agent-managed"
 DATASET_KEY = "hybrid-data-agent-tool-calling-evals"
 DATASET_JSONL = "evals/datasets/tool_calling_evals.jsonl"
+
+AGENT_INSTRUCTIONS = """You are an AI assistant for Toyota and Lexus vehicle information, focused on documents (manuals, warranties, contracts).
+
+Rules:
+- Use the Knowledge Base search tools to ground every answer in retrieved content
+- If information is missing, say so instead of guessing
+- Cite the source document when relevant
+- Use markdown for structure. Be concise.
+"""
 
 # LLM classifier prompt for the safety guardrail. Returns True for safe
 # queries, False for unsafe queries. Tune this in the orq.ai Studio without
@@ -157,7 +167,7 @@ def setup_project(api_key: str, name: str) -> None:
     The `/projects` endpoint returns a flat array (not paginated), so we don't
     reuse `_paginate` here.
     """
-    print(f"\n[1/6] Project '{name}'")
+    print(f"\n[1/7] Project '{name}'")
 
     response = _get(api_key, "/projects")
     response.raise_for_status()
@@ -184,7 +194,7 @@ def setup_project(api_key: str, name: str) -> None:
 
 def setup_knowledge_base(api_key: str, path: str) -> str:
     """Find or create the Knowledge Base. Returns its ID."""
-    print(f"\n[2/6] Knowledge Base '{KB_KEY}'")
+    print(f"\n[2/7] Knowledge Base '{KB_KEY}'")
 
     existing = _paginate(api_key, "/knowledge", lambda kb: kb.get("key") == KB_KEY)
     if existing:
@@ -246,7 +256,7 @@ def _create_prompt(
 
 def setup_system_prompt(api_key: str, path: str) -> str:
     """Find or create the default system prompt. Returns its ID."""
-    print(f"\n[3/6] System prompt '{PROMPT_KEY}'")
+    print(f"\n[3/7] System prompt '{PROMPT_KEY}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
@@ -269,7 +279,7 @@ def setup_system_prompt(api_key: str, path: str) -> str:
 
 def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
     """Find or create the 'variant B' system prompt used for A/B testing. Returns its ID."""
-    print(f"\n[4/6] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
+    print(f"\n[4/7] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
 
     existing = _paginate(
         api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B
@@ -297,7 +307,7 @@ def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
 
 def setup_safety_evaluator(api_key: str, path: str) -> str:
     """Find or create the LLM safety evaluator used as an input guardrail. Returns its ID."""
-    print(f"\n[5/6] Safety evaluator '{SAFETY_EVAL_KEY}'")
+    print(f"\n[5/7] Safety evaluator '{SAFETY_EVAL_KEY}'")
 
     existing = _paginate(
         api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY
@@ -329,6 +339,56 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
     eval_id = _id(body)
     print(f"  → created new safety evaluator: {eval_id}")
     return eval_id
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Managed orq.ai Agent (alternative to the LangGraph agent in src/assistant/)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def setup_managed_agent(api_key: str, path: str, kb_id: str) -> str:
+    """Find or create the orq.ai managed Agent used by `make run-orq-agent`.
+
+    This is the 'Approach B' comparison to the LangGraph agent — same KB, same
+    sample data, but orchestrated entirely via the orq.ai platform instead of
+    Python code. See docs/comparing-approaches.md for the full rundown.
+    """
+    print(f"\n[6/7] Managed Agent '{AGENT_KEY}'")
+
+    # Agents list endpoint returns data at top-level or under "data" depending
+    # on workspace. Use the paginator like other lookups.
+    existing = _paginate(api_key, "/agents", lambda a: a.get("key") == AGENT_KEY)
+    if existing:
+        agent_id = _id(existing)
+        print(f"  → reusing existing agent: {agent_id}")
+        return agent_id
+
+    payload = {
+        "key": AGENT_KEY,
+        "role": "Assistant",
+        "description": "Managed orq.ai Agent version of the Hybrid Data Agent — document search only",
+        "instructions": AGENT_INSTRUCTIONS,
+        "path": path,
+        "model": {"id": PROMPT_MODEL},
+        "knowledge_bases": [{"knowledge_id": kb_id}],
+        "settings": {
+            "max_iterations": 5,
+            "max_execution_time": 300,
+            "tools": [
+                # Built-in orq.ai tools for KB search. The agent will call
+                # these automatically when its instructions direct it to.
+                {"type": "orq:retrieve_knowledge_bases", "id": "01JMH5RA050869BW32BZ55XZ86"},
+                {"type": "orq:query_knowledge_base", "id": "01K31FYKCQMS6HP4R392X018W4"},
+            ],
+        },
+    }
+    response = _post(api_key, "/agents", payload)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Failed to create managed agent: {response.text}")
+    body = response.json()
+    agent_id = _id(body)
+    print(f"  → created new managed agent: {agent_id}")
+    return agent_id
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -364,7 +424,7 @@ def _load_datapoints() -> List[Dict[str, Any]]:
 
 def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
-    print(f"\n[6/6] Evaluation dataset '{DATASET_KEY}'")
+    print(f"\n[7/7] Evaluation dataset '{DATASET_KEY}'")
 
     existing = _paginate(
         api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY
@@ -419,6 +479,7 @@ def main() -> int:
         prompt_id = setup_system_prompt(api_key, project_path)
         prompt_id_variant_b = setup_system_prompt_variant_b(api_key, project_path)
         safety_eval_id = setup_safety_evaluator(api_key, project_path)
+        agent_id = setup_managed_agent(api_key, project_path, kb_id)
         dataset_id = setup_dataset(api_key, project_path)
     except Exception as e:
         print(f"\n❌ Bootstrap failed: {e}")
@@ -438,6 +499,7 @@ def main() -> int:
     print(f'ORQ_SYSTEM_PROMPT_ID="{prompt_id}"')
     print(f'ORQ_SYSTEM_PROMPT_ID_VARIANT_B="{prompt_id_variant_b}"')
     print(f'ORQ_SAFETY_EVALUATOR_ID="{safety_eval_id}"')
+    print(f'ORQ_MANAGED_AGENT_KEY="{AGENT_KEY}"')
     print(f"# Dataset ID (not read by the app, informational only):")
     print(f"# ORQ_DATASET_ID={dataset_id}")
     print("# ───────────────────────────────────────────────────────────────")

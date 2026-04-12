@@ -285,6 +285,22 @@ For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).
 
 ![Evaluating Tool Calling](media/tool-calling-evals.png)
 
+## Two ways to build the same agent
+
+This repo ships **two implementations** of the same assistant so you can see
+the trade-offs of code-first vs. Studio-first agent development:
+
+| Approach | What it is | Run it |
+|---|---|---|
+| **A — LangGraph** (this repo's main agent) | Python `StateGraph` with explicit nodes, Python tools, safety guardrail | `make run` |
+| **B — Managed orq.ai Agent** | Agent config lives in the orq.ai Studio, orchestration handled by the platform | `make run-orq-agent` |
+
+Both talk to the same Knowledge Base, same model, same project. The difference
+is where the orchestration logic lives.
+
+See [`docs/comparing-approaches.md`](docs/comparing-approaches.md) for a full
+side-by-side comparison and guidance on when to pick which approach.
+
 ## Swap models via the AI Router
 
 All LLM calls are routed through `https://api.orq.ai/v2/router`, which is
@@ -349,6 +365,27 @@ experiment picks up the latest published version.
 
 See [`evals/run_prompt_experiment.py`](evals/run_prompt_experiment.py) for the
 job definitions and scorer wiring.
+
+## Growing the eval dataset from production traces
+
+One of orq.ai's strongest teaching points: **every trace can become an eval
+datapoint**. This repo ships a script that closes the production → eval loop:
+
+```bash
+# 1. Export traces from the orq.ai Studio (or via the orq MCP server)
+# 2. Dry-run: see what would be added
+make evals-grow-from-traces FILE=recent-traces.json
+
+# 3. Append for real and re-run the evals
+uv run python scripts/grow_eval_dataset.py --from-file recent-traces.json --apply
+make evals-run
+```
+
+The script dedupes against existing datapoints by question hash, classifies
+each new case as `sql_only` / `document_only` / `mixed` based on which tools
+were called, and never overwrites. See
+[`docs/eval-dataset-growth.md`](docs/eval-dataset-growth.md) for the full
+workflow and how to get the traces JSON.
 
 ## Troubleshooting
 
