@@ -1,7 +1,12 @@
-from enum import Enum
+import logging
 import os
+from enum import Enum
+from typing import Optional
 
+import httpx
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class SafetyAssessment(Enum):
@@ -15,6 +20,96 @@ class GuardrailsOutput(BaseModel):
     unsafe_categories: list[str] = Field(
         description="If content is unsafe, the list of unsafe categories.", default=[]
     )
+
+
+class OrqSafetyGuardrail:
+    """Safety guardrail backed by an orq.ai LLM evaluator.
+
+    Uses `POST /v2/evaluators/{id}/invoke` to classify each user message as
+    safe/unsafe. The evaluator is created by `make setup-workspace` and its
+    ID comes from `ORQ_SAFETY_EVALUATOR_ID`.
+
+    Benefits over the OpenAI moderation API:
+    - One less external dependency (calls only orq.ai, not openai.com)
+    - Classification prompt is tunable in the orq.ai Studio with no code changes
+    - Every invocation appears as a span in the orq.ai trace tree under
+      `guard_input`, so blocked queries are visible and auditable
+    - Policy can be A/B tested using the same evaluatorq workflow as prompts
+
+    Falls back to the OpenAI moderator if `ORQ_SAFETY_EVALUATOR_ID` is not set
+    or if the orq.ai call fails for any reason.
+    """
+
+    def __init__(self, evaluator_id: Optional[str] = None) -> None:
+        # Deferred import so settings-level errors don't prevent the graph from loading
+        try:
+            from core.settings import settings
+            self.evaluator_id = evaluator_id or settings.ORQ_SAFETY_EVALUATOR_ID
+        except Exception:
+            self.evaluator_id = evaluator_id or os.getenv("ORQ_SAFETY_EVALUATOR_ID", "")
+        self.api_key = os.getenv("ORQ_API_KEY")
+        self._fallback = OpenAIModerator() if not self.evaluator_id or not self.api_key else None
+
+    async def ainvoke(self, text: str) -> GuardrailsOutput:
+        if self._fallback is not None:
+            logger.debug("ORQ_SAFETY_EVALUATOR_ID not configured — using OpenAI moderator fallback")
+            return await self._fallback.ainvoke(text)
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"https://api.orq.ai/v2/evaluators/{self.evaluator_id}/invoke",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"query": text, "output": text},
+                )
+                response.raise_for_status()
+                body = response.json()
+
+            # Response shape: {"type": "llm_evaluator", "value": {"value": <bool|number|str>, "explanation": "..."}}
+            inner = body.get("value") or {}
+            value = inner.get("value")
+            explanation = inner.get("explanation") or ""
+
+            # The LLM evaluator can return different types depending on how
+            # the underlying model responded: bool, number (0/1 or similar),
+            # or a string like "true"/"false". Coerce to a safe/unsafe verdict.
+            is_safe: Optional[bool] = None
+            if isinstance(value, bool):
+                is_safe = value
+            elif isinstance(value, (int, float)):
+                # Non-zero → safe, 0 → unsafe (matches our "return 1 for safe, 0 for unsafe" prompt).
+                is_safe = value > 0
+            elif isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in ("true", "yes", "safe", "1"):
+                    is_safe = True
+                elif lowered in ("false", "no", "unsafe", "0"):
+                    is_safe = False
+
+            if is_safe is True:
+                return GuardrailsOutput(safety_assessment=SafetyAssessment.SAFE)
+            if is_safe is False:
+                return GuardrailsOutput(
+                    safety_assessment=SafetyAssessment.UNSAFE,
+                    unsafe_categories=[explanation[:200] or "classified unsafe"],
+                )
+
+            # Unknown shape — treat as error and fall back
+            logger.warning(f"Unexpected evaluator response shape: {body}")
+            return GuardrailsOutput(safety_assessment=SafetyAssessment.ERROR)
+        except Exception as e:
+            logger.warning(f"orq.ai safety evaluator failed, falling back to OpenAI: {e}")
+            fallback = OpenAIModerator()
+            return await fallback.ainvoke(text)
+
+    def invoke(self, text: str) -> GuardrailsOutput:
+        # Sync wrapper that calls the async version via a throwaway event loop.
+        import asyncio
+
+        return asyncio.run(self.ainvoke(text))
 
 
 class OpenAIModerator:

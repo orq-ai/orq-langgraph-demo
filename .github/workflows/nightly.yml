@@ -1,0 +1,72 @@
+name: Nightly Prompt A/B Experiment
+
+# Runs the prompt A/B experiment on main every night at 03:00 UTC.
+# Posts a summary comment with the experiment URL so the team can
+# review any drift in prompt variant performance over time.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  prompt-ab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Cache uv venv
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-nightly-${{ hashFiles('**/uv.lock') }}
+
+      - name: Install dependencies
+        run: uv sync --group eval
+
+      - name: Run prompt A/B experiment
+        id: experiment
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ORQ_API_KEY: ${{ secrets.ORQ_API_KEY }}
+          ORQ_PROJECT_NAME: ${{ secrets.ORQ_PROJECT_NAME }}
+          ORQ_KNOWLEDGE_BASE_ID: ${{ secrets.ORQ_KNOWLEDGE_BASE_ID }}
+          ORQ_SYSTEM_PROMPT_ID: ${{ secrets.ORQ_SYSTEM_PROMPT_ID }}
+          ORQ_SYSTEM_PROMPT_ID_VARIANT_B: ${{ secrets.ORQ_SYSTEM_PROMPT_ID_VARIANT_B }}
+        run: |
+          set -o pipefail
+          make evals-compare-prompts 2>&1 | tee experiment_output.txt
+          # Extract the experiment URL emitted by evaluatorq
+          url=$(grep -Eo 'https://my\.orq\.ai/[^ ]*experiments/[^ ]*' experiment_output.txt | head -1)
+          echo "url=${url}" >> $GITHUB_OUTPUT
+
+      - name: Upload experiment output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-output
+          path: experiment_output.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🌙 Nightly Prompt A/B Experiment" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.experiment.outputs.url }}" ]; then
+            echo "✅ Experiment complete" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "[View in orq.ai Studio](${{ steps.experiment.outputs.url }})" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Experiment failed or URL not emitted" >> $GITHUB_STEP_SUMMARY
+          fi

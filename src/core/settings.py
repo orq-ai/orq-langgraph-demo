@@ -49,6 +49,12 @@ class Settings(BaseSettings):
         env="ORQ_SYSTEM_PROMPT_ID_VARIANT_B",
     )
 
+    ORQ_SAFETY_EVALUATOR_ID: str = Field(
+        default="",
+        description="orq.ai evaluator ID for the input-safety guardrail (falls back to OpenAI moderation if empty)",
+        env="ORQ_SAFETY_EVALUATOR_ID",
+    )
+
     # Model Configuration
     DEFAULT_MODEL: str = Field(
         default="openai/gpt-4.1-mini",

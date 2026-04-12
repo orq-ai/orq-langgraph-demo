@@ -27,7 +27,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
 
 from assistant.context import Context
-from assistant.guardrails import GuardrailsOutput, OpenAIModerator, SafetyAssessment
+from assistant.guardrails import GuardrailsOutput, OrqSafetyGuardrail, SafetyAssessment
 from assistant.models import SearchResult
 from assistant.state import InputState, Router, State
 from assistant.tools import TOOLS, search_documents, search_in_document
@@ -84,14 +84,14 @@ def format_safety_message(safety: GuardrailsOutput) -> AIMessage:
 
 
 async def guard_input(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """Check input safety using OpenAI moderation."""
-    moderator = OpenAIModerator()
+    """Check input safety using an orq.ai LLM evaluator (falls back to OpenAI moderation)."""
+    guardrail = OrqSafetyGuardrail()
 
     # Get the last user message
     user_messages = [msg.content for msg in state.messages if hasattr(msg, "content")]
     input_text = " ".join(user_messages) if user_messages else ""
 
-    safety_output = await moderator.ainvoke(input_text)
+    safety_output = await guardrail.ainvoke(input_text)
     return {"safety": safety_output}
 
 

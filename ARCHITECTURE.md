@@ -86,7 +86,7 @@ Overview of how data flows through the agent to answer questions.
 
 |  **Layer** |  **Implementation Status** |  **Protection Against** |
 |-----------|---------------------------|------------------------|
-| **Input Filtering** | OpenAI Moderation API | Harmful content |
+| **Input Filtering** | orq.ai LLM Evaluator (guardrail) | Harmful content, illegal activity, prompt injection |
 | **Query Routing** | LLM-based topic classification | Off-topic queries, conversation hijacking |
 | **Query Templates** | Parameterized query whitelisting | Unauthorized database access |
 | **Parameter Validation** | Type-safe parameter checking | Invalid parameters, data corruption |
@@ -94,9 +94,18 @@ Overview of how data flows through the agent to answer questions.
 
 #### Layer 1: Input Validation & Content Filtering
 
-- **OpenAI Moderation API**: First line of defense against harmful content
-- **Real-time Processing**: Blocks policy violations before query processing
-- **Coverage**: Hate speech, violence, self-harm, sexual content, harassment
+- **orq.ai LLM Evaluator Guardrail** (`hybrid-data-agent-safety`):
+  First line of defense. A tunable classification prompt running on
+  `gpt-4.1-mini` (configurable in the Studio) decides SAFE vs UNSAFE before
+  any agent work happens.
+- **Tunable in the Studio**: Edit the classification criteria — harmful
+  content, illegal activity, prompt injection — without a code change or
+  deploy.
+- **Auditable**: Every guardrail invocation appears as a span in the trace
+  tree under `guard_input`, so blocked queries are visible and reviewable.
+- **Fallback**: If `ORQ_SAFETY_EVALUATOR_ID` is unset or the orq.ai call
+  fails, the guardrail falls back to the OpenAI Moderation API
+  (`src/assistant/guardrails.py` — `OrqSafetyGuardrail` → `OpenAIModerator`).
 
 #### Layer 2: Query Classification & Routing
 

@@ -1,0 +1,56 @@
+name: Evaluation Gate
+
+# Runs the evaluation pipeline on PRs that touch agent or eval code.
+# Blocks the PR if any tool-accuracy / category-accuracy scorer regresses
+# (evaluatorq exits with non-zero on any `pass_=False` result).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/assistant/**"
+      - "evals/**"
+      - "scripts/unstructured_data_ingestion_pipeline.py"
+      - "scripts/setup_orq_workspace.py"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    # Skip forks — eval runs require secrets
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Cache uv venv
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-eval-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-eval-
+
+      - name: Install dependencies (main + eval group)
+        run: uv sync --group eval
+
+      - name: Run evaluation pipeline
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ORQ_API_KEY: ${{ secrets.ORQ_API_KEY }}
+          ORQ_PROJECT_NAME: ${{ secrets.ORQ_PROJECT_NAME }}
+          ORQ_KNOWLEDGE_BASE_ID: ${{ secrets.ORQ_KNOWLEDGE_BASE_ID }}
+          ORQ_SYSTEM_PROMPT_ID: ${{ secrets.ORQ_SYSTEM_PROMPT_ID }}
+        run: |
+          # evaluatorq exits non-zero on any pass_=False → PR turns red
+          make evals-run
