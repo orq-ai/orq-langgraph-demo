@@ -242,9 +242,15 @@ understands both forms and exempts pure refusals, so it actually tracks
 whether the agent follows its own attribution policy.
 
 Tune it in the orq.ai Studio — edit the prompt, click Publish, and the
-next eval run picks up the change. See
-[`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) for
-`SOURCE_CITATIONS_PROMPT`.
+next eval run picks up the change. The Studio's evaluator detail page
+shows the rubric prompt, the available log variables, and a built-in
+playground for testing the judgment against a sample (request,
+response) pair before saving:
+
+![Source citations evaluator detail in the orq.ai Studio](media/evaluator_source_citations_detail.png)
+
+See [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
+for the canonical `SOURCE_CITATIONS_PROMPT` that the bootstrap uploads.
 
 ### 3. Response Grounding (orq.ai LLM evaluator)
 

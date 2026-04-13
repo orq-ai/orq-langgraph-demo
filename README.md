@@ -180,10 +180,10 @@ Visit `http://localhost:8000` to chat with the assistant.
 
 ![Hybrid Data Agent — welcome screen](media/chainlit_home_clean.png)
 
-The agent exposes its tool calls inline as the response streams in. Expand
-any step to see the exact input/output LangChain passed between nodes:
-
-![Hybrid Data Agent — inline tool trace](media/chainlit_tool_trace_yaris_safety.png)
+The agent exposes its tool calls inline as the response streams in. Every
+node, tool call, and LLM round-trip is also captured in the orq.ai Studio
+Traces tab so you can drill into inputs/outputs/cost/latency at every step
+(see the Observability section below).
 
 
 6. **Run the agent using LangGraph Studio**
@@ -257,25 +257,33 @@ retrievals — with token usage and cost per step.
 See [`src/assistant/tracing.py`](src/assistant/tracing.py) for the OTEL setup
 that makes this work.
 
+### Project dashboard
+
+The Studio's project dashboard rolls everything up: total requests, cost,
+P95 latency, and the per-model + per-deployment breakdown across all
+traces from this agent.
+
+![Project dashboard with cost + latency overview](media/project_dashboard.png)
+
 ### Trace tree view
 
 Drill into a single run to inspect inputs, outputs, token usage, and cost at
 every step of the LangGraph execution.
 
-![Trace details view](media/trace_details_yaris_safety.png)
+![Trace details view](media/trace_details_food_demo.png)
 
 ### Timeline view
 
 View execution as a timeline to spot bottlenecks and measure step durations.
 
-![Trace timeline view](media/trace_timeline_yaris_safety.png)
+![Trace timeline view](media/trace_timeline_food_demo.png)
 
 ### Thread view
 
 Follow the conversation as a message thread to review how the agent reasoned
 through the problem.
 
-![Trace thread view](media/trace_thread_yaris_safety.png)
+![Trace thread view](media/trace_thread_food_demo.png)
 
 ## Tests, Continuous Integration and Evals
 
@@ -303,10 +311,6 @@ Running full evaluation pipeline and testing realistic [sample questions](resour
 # Make sure you set ORQ_API_KEY (see EVALS.md)
 make evals-run
 ```
-
-Terminal output — 15 datapoints, four scorers, per-row results synced to the Studio:
-
-![make evals-run terminal output](media/evals_run_terminal.png)
 
 **Evaluation Features:**
 
@@ -341,8 +345,14 @@ side-by-side comparison and guidance on when to pick which approach.
 ## Swap models via the AI Router
 
 All LLM calls are routed through `https://api.orq.ai/v2/router`, which is
-OpenAI-protocol-compatible. Swapping providers is a **one-line change** in
-`.env` — no code modifications, no re-deploy:
+OpenAI-protocol-compatible. The Studio's Models page shows every provider
+the Router knows about (OpenAI, Anthropic, Google, Groq, Mistral, Cohere,
+Together, etc.) with per-model pricing, context window, and capability flags:
+
+![orq.ai AI Router — supported models](media/ai_router_models.png)
+
+Swapping providers is a **one-line change** in `.env` — no code
+modifications, no re-deploy:
 
 ```bash
 # Default
@@ -378,8 +388,13 @@ return ChatOpenAI(
 ## Prompt A/B testing
 
 The system prompt is managed in orq.ai, so you can A/B test different versions
-against the evaluation dataset without a code change. Two variants are
-bootstrapped by `make setup-workspace`:
+against the evaluation dataset without a code change. Each prompt lives in
+the Studio as a versioned, taggable resource — edit, preview, and publish
+without touching the repo:
+
+![orq.ai Prompts — system prompt detail in the Studio](media/system_prompt_studio.png)
+
+Two variants are bootstrapped by `make setup-workspace`:
 
 - **Variant A** — the canonical, verbose prompt with grounding rules and response guidelines
 - **Variant B** — a deliberately concise version that strips the verbose sections
@@ -393,8 +408,14 @@ make evals-compare-prompts
 This runs the same 15 evaluation cases twice — once per variant — using
 evaluatorq's multi-job mode. All four scorers (`tool-accuracy`,
 `source-citations`, `response-grounding`, `hallucination-check`) are
-applied to both variants, and the results sync to orq.ai Studio as a
-single experiment with the variants side-by-side:
+applied to both variants. Terminal output streams the per-row dispatch +
+the final scorer breakdown for both variants:
+
+![make evals-compare-prompts terminal output](media/evals_compare_prompts_terminal.png)
+
+Results then sync to the orq.ai Studio as a single experiment with the
+two variants side-by-side, color-coded per scorer cell so it's easy to
+see which variant outperforms on which dimension:
 
 ![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
 
