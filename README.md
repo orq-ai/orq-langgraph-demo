@@ -62,11 +62,37 @@ The assistant uses a multi-step LangGraph workflow with routing:
    - **general**: Politely redirects off-topic questions back to delivery-service topics
 4. **Agentic Tool Loop**: For on-topic questions, iterates between the model and the tools (KB search + SQL) until it has a grounded answer
 
-See below the agent architecture.
+The whole flow as a graph:
 
-![Agent Architecture](media/agent_architecture.png)
+```mermaid
+flowchart TD
+    Start([__start__]) --> Guard[guard_input<br/>orq.ai safety evaluator]
 
-For a detailed technical overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+    Guard --> Safety{check_safety}
+    Safety -- unsafe --> Block[block_unsafe_content]
+    Safety -- safe --> Route[analyze_and_route_query]
+
+    Route --> RouteQuery{route_query}
+    RouteQuery -- general --> OffTopic[respond_to_offtopic_question]
+    RouteQuery -- more-info --> AskMore[ask_for_more_info]
+    RouteQuery -- on_topic --> CallModel[call_model]
+
+    CallModel <-->|agentic loop| Tools["tools (ToolNode)<br/>3 KB search tools + 9 SQL tools"]
+    CallModel -. no more tool_calls .-> End([__end__])
+
+    Block --> End
+    OffTopic --> End
+    AskMore --> End
+```
+
+Every box maps 1:1 to a node in [`src/assistant/graph.py`](src/assistant/graph.py).
+The `{check_safety}` and `{route_query}` diamonds are LangGraph conditional
+edges; the `<-->` between `call_model` and `tools` is the agentic loop the
+React-style agent uses to keep calling tools until it has enough context
+to answer.
+
+For a detailed technical overview of the system architecture (including
+the data-flow sequence diagram for a real query), see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 
 ## Demo
