@@ -148,6 +148,11 @@ cp .env.example .env
 make setup-workspace
 ```
 
+A successful run walks through 10 steps and finishes with a paste-safe
+env-var block:
+
+![make setup-workspace terminal output](media/setup_workspace_output.png)
+
 Example output (abridged — the real script runs 10 steps and prints all 8 env vars below the banner):
 ```
 [1/10] Project 'langgraph-demo'
