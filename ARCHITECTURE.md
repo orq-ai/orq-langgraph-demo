@@ -1,6 +1,6 @@
 # Architecture
 
-The Hybrid Data Agent is a reference implementation of a conversational AI agent that combines structured data (SQLite sales records) with unstructured documents (manuals, contracts, warranty policies) in a single LangGraph workflow. Built with LangGraph for agent orchestration, the orq.ai Knowledge Base for managed vector storage, and SQLite for structured data, it demonstrates end-to-end patterns for building agents that reason across multiple data sources, managed through the orq.ai platform. Here I document the key architecture decisions.
+The Hybrid Data Agent is a reference implementation of a conversational AI agent that combines structured data (SQLite delivery orders aggregated at the restaurant × dish × month grain) with unstructured operational documents (menu book, refund/SLA policy, food safety policy, allergen labeling, operations handbook, customer service playbook) in a single LangGraph workflow. Built with LangGraph for agent orchestration, the orq.ai Knowledge Base for managed vector storage, and SQLite for structured data, it demonstrates end-to-end patterns for building agents that reason across multiple data sources, managed through the orq.ai platform. The current dataset is brand-neutral and synthetic — designed as an internal-ops demo for a food-delivery service. Here I document the key architecture decisions.
 
 ## Architecture Overview Diagram
 
@@ -30,7 +30,7 @@ flowchart LR
         GuardInput --> CheckSafety
         CheckSafety -- unsafe --> Block
         CheckSafety -- safe --> Route
-        Route -- toyota --> CallModel
+        Route -- on_topic --> CallModel
         Route -- more-info --> AskMore
         Route -- general --> OffTopic
         CallModel <-->|agentic loop| ToolsNode
@@ -43,8 +43,8 @@ flowchart LR
     OffTopic --> AIRouter
     CallModel -.fetches at startup.-> Prompts[["Prompts<br/>variant A + B"]]
     ToolsNode --> KB[("orq.ai Knowledge Base<br/>hybrid search")]
-    ToolsNode --> SQLite[("SQLite<br/>fact_sales star schema")]
-    KB -.ingested from.-> PDFs[/"PDF corpus<br/>manuals · contracts · warranties"/]
+    ToolsNode --> SQLite[("SQLite<br/>fact_orders star schema")]
+    KB -.ingested from.-> PDFs[/"PDF corpus<br/>menu · policies · ops handbook"/]
 
     Graph -.OTEL spans.-> Traces[["Traces<br/>orq.ai Studio"]]
 ```
@@ -63,31 +63,33 @@ flowchart LR
 
 ### 2. **Data Access Layer**
 
-- **Structured Data**: SQLite with star schema (fact tables + dimensions)
-  - `fact_sales`, `dim_model`, `dim_country`, `dim_ordertype`
+- **Structured Data**: SQLite with a delivery-orders star schema (fact table + 3 dimensions)
+  - `fact_orders` — one row per (restaurant × dish × month) with `orders_count`, `revenue_eur`, `avg_rating`, `avg_delivery_minutes`
+  - `dim_dish` — 30 dishes across 9 cuisines with prices, calories, allergens
+  - `dim_restaurant` — 20 restaurants tied to cities + cuisine types
+  - `dim_city` — 10 European cities with country + region
 - **Unstructured Data**: orq.ai Knowledge Base (managed embeddings + vector search)
-  - PDF documents, manuals, warranties, contracts
+  - 6 operational PDFs: Menu Book, Refund & SLA Policy, Food Safety & Hygiene Policy, Allergen Labeling Policy, Delivery Operations Handbook, Customer Service Playbook. Markdown sources under `docs/sources/`, rendered via `scripts/generate_demo_pdfs.py`.
 
 ### 3. **Tool Layer**
 
-- **Individual SQL Tools**: 9 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM.
-All necessary SQL operations are accessible through predefined SQL statements exposed as individual tools.
+- **Individual SQL Tools**: 9 approved queries. Provides SQL injection protection by preventing direct SQL engine exposure to the LLM. All necessary SQL operations are accessible through predefined typed tools that map to parameterized query templates in `sql_schemas.py`.
 
 This approach prioritizes safety over flexibility. In case we see new data needs we need to review the available queries and provide new tools if necessary.
 
 Here is the list of predefined queries and their use:
 
-  - `get_sales_by_model`: Model-specific sales data with country/year filters
-  - `get_sales_by_country`: Country-specific sales analysis
-  - `get_sales_by_region`: Regional sales comparison and analysis
-  - `get_sales_trends`: Monthly sales trends and patterns
-  - `get_top_performing_models`: Best-selling models by sales volume
-  - `get_powertrain_analysis`: Sales performance by powertrain type
-  - `get_top_countries_by_sales`: Country rankings by sales performance
-  - `get_powertrain_sales_trends`: Powertrain-specific monthly trends
-  - `compare_models_by_brand`: Brand-specific model comparisons
+  - `get_orders_by_dish`: Monthly orders for a specific dish (optionally filtered to a city)
+  - `get_orders_by_country`: Orders aggregated by dish/cuisine within a country
+  - `get_orders_by_region`: Orders aggregated across a geographic region (pattern-matched)
+  - `get_order_trends`: Monthly order trends by cuisine
+  - `get_top_dishes`: Top-performing dishes by order count + revenue
+  - `get_cuisine_analysis`: Per-cuisine performance breakdown (orders, revenue, rating, delivery time)
+  - `compare_dishes_by_restaurant`: All dishes served at a specific restaurant
+  - `get_top_cities_by_orders`: City rankings by order volume and revenue
+  - `get_cuisine_order_trends`: Monthly trend for a specific cuisine
 
-- **Vector Search Tools**: Semantic search across documents. PDFs are chunked locally (PyPDF + RecursiveCharacterTextSplitter) and ingested into an orq.ai Knowledge Base, which handles embeddings and vector search.
+- **Vector Search Tools**: Semantic search across the 6 operational PDFs. Markdown sources are rendered to PDF via `reportlab`, then ingested into an orq.ai Knowledge Base which handles chunking, embeddings, and hybrid (vector + keyword) search.
 
 ### 4. **User Interface Layer**
 
@@ -97,11 +99,11 @@ Here is the list of predefined queries and their use:
 
 ## Data Flow Architecture
 
-End-to-end sequence for a single "RAV4 sales + maintenance" query. Note
-that `call_model` and `tools` form an agentic loop — the model can call
-tools, look at the results, and call more tools before emitting the final
-answer. This is why the same rows can appear multiple times in the trace
-tree for complex queries.
+End-to-end sequence for a single mixed "Margherita sales + allergens"
+query. Note that `call_model` and `tools` form an agentic loop — the model
+can call tools, look at the results, and call more tools before emitting
+the final answer. This is why the same rows can appear multiple times in
+the trace tree for complex queries.
 
 ```mermaid
 sequenceDiagram
@@ -114,23 +116,23 @@ sequenceDiagram
     participant KB as orq.ai Knowledge Base
     participant SQL as SQLite
 
-    User->>Chainlit: "How is RAV4 performing in sales<br/>and what maintenance does it require?"
+    User->>Chainlit: "How is Margherita Pizza performing in sales<br/>for 2024 and what allergens does it contain?"
     Chainlit->>Graph: graph.ainvoke(messages, context)
 
     Graph->>OrqEval: guard_input — classify safety
     OrqEval-->>Graph: SAFE
 
     Graph->>Router: analyze_and_route_query — LLM call
-    Router-->>Graph: type=toyota, logic=…
+    Router-->>Graph: type=on_topic, logic=…
 
     Graph->>Router: call_model — LLM picks tools
-    Router-->>Graph: tool_calls: [get_sales_by_model, search_documents]
+    Router-->>Graph: tool_calls: [get_orders_by_dish, search_documents]
 
     par tool dispatch
-        Graph->>SQL: get_sales_by_model(RAV4)
-        SQL-->>Graph: sales rows
+        Graph->>SQL: get_orders_by_dish("Margherita Pizza", year=2024)
+        SQL-->>Graph: monthly order rows
     and
-        Graph->>KB: search_documents("RAV4 maintenance")
+        Graph->>KB: search_documents("Margherita Pizza allergens")
         KB-->>Graph: SearchResults (content + artifact)
     end
 
@@ -211,7 +213,7 @@ sequenceDiagram
 
 - **Input Guardrails**: Primary check is an orq.ai LLM evaluator (`hybrid-data-agent-safety`) — tunable in the Studio, auditable via the trace tree. Falls back to the OpenAI Moderation API if the evaluator is unreachable or unconfigured (`ORQ_SAFETY_EVALUATOR_ID` unset).
 - **Database Security**: The agent never writes SQL. Each SQL tool maps to a named `query_type` in `sql_schemas.py`, parameters are validated, and the SQLite database is opened `mode=ro`.
-- **Off-topic Protection**: Off-topic conversations are a risky vector for prompt injection and jailbreaking. The router node classifies queries as `toyota` / `more-info` / `general` and only the first path reaches the tool loop.
+- **Off-topic Protection**: Off-topic conversations are a risky vector for prompt injection and jailbreaking. The router node classifies queries as `on_topic` / `more-info` / `general` and only the first path reaches the tool loop.
 
 **Document Serving Security:**
 
@@ -234,9 +236,9 @@ The trace, timeline, and thread views are shown in [README.md#observability](REA
 
 - **Dataset Management**: Ground truth dataset with 15 test questions covering SQL-only, document-only, and mixed scenarios
 - **Categories Tested**:
-  - SQL-only (5 questions): Model sales, top performers, regional analysis, trends, rankings
-  - Document-only (5 questions): Warranty info, maintenance procedures, safety features, repair guides
-  - Mixed (5 questions): Combined SQL + document responses
+  - SQL-only (5 questions): Top dishes, dish performance, cuisine analysis, top cities, monthly cuisine trends
+  - Document-only (5 questions): Refund policy, allergen info, driver protocol, food safety temperature bands, escalation flow
+  - Mixed (5 questions): Combined SQL + document responses (e.g. "Margherita sales + allergens", "Top dishes + menu ingredients")
 - **Scorers** (four dimensions, run per row via [`evals/run_evals.py`](evals/run_evals.py)):
   - `tool-accuracy` — local Python scorer, True iff every expected tool was called
   - `source-citations` — orq.ai LLM judge, True iff factual claims are attributed to a source or the response is a pure refusal/clarification

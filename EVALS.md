@@ -89,19 +89,19 @@ evals/
 ```json
 {
   "metadata": {
-    "id": "sql_001",
+    "id": "sql_002",
     "category": "sql_only",
-    "expected_tools": ["get_sales_by_model"]
+    "expected_tools": ["get_orders_by_dish"]
   },
   "inputs": {
     "category": "sql_only",
-    "question": "Show me RAV4 sales in Germany for 2024",
-    "expected_tools": ["get_sales_by_model"]
+    "question": "Show me Margherita Pizza orders in Berlin for 2024.",
+    "expected_tools": ["get_orders_by_dish"]
   },
   "outputs": {
-    "response": "Based on our sales data, here's how RAV4 performed...",
-    "tools_called": ["get_sales_by_model"],
-    "execution_status": "success"
+    "expected_tools": ["get_orders_by_dish"],
+    "category": "sql_only",
+    "notes": "Should dispatch get_orders_by_dish with dish_name='Margherita Pizza', city='Berlin', year=2024."
   }
 }
 ```
