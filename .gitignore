@@ -162,6 +162,7 @@ logs/
 
 # API keys and secrets
 .env.local
+.env.backup
 .env.production
 .env.staging
 secrets.txt
@@ -171,6 +172,7 @@ api_keys.txt
 
 # LangGraph
 .langgraph/
+.langgraph_api/
 
 # Pre-commit
 .pre-commit-cache/
