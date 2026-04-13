@@ -97,17 +97,11 @@ the data-flow sequence diagram for a real query), see [ARCHITECTURE.md](ARCHITEC
 
 ## Demo
 
-### Basic Demo
+End-to-end walkthrough: the agent fielding a hybrid query that mixes
+structured order data (SQL tools) with unstructured policy/menu content
+(KB search), then surfacing the cited PDFs in the Chainlit side panel.
 
-Demo showing the agent using semantic search to find relevant documents.
-
-![Basic Demo](media/demo_optimized.gif)
-
-### Sales Data Analysis Demo
-
-Demo showing the agent using SQL capabilities to query the structured database.
-
-![Sales Data Analysis Demo](media/demo_sales_data_2_optimized.gif)
+![Hybrid Data Agent demo](media/demo_food_delivery.gif)
 
 
 
