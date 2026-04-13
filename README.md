@@ -448,9 +448,7 @@ the final scorer breakdown for both variants:
 
 Results then sync to the orq.ai Studio as a single experiment with the
 two variants side-by-side, color-coded per scorer cell so it's easy to
-see which variant outperforms on which dimension:
-
-![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
+see which variant outperforms on which dimension.
 
 **To iterate on a variant:** edit it directly in the orq.ai Studio
 (`Onboarding-Langgraph → hybrid-data-agent-system-prompt-variant-b`), publish, then

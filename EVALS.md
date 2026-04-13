@@ -192,8 +192,6 @@ make evals-compare-prompts
 The single-variant case (`make evals-run` → `--variants A`) is the same
 code path with a one-element variants list — no separate script.
 
-![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
-
 **To iterate on a variant:** open the prompt in the orq.ai Studio
 (`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), edit,
 click Publish, and re-run `make evals-compare-prompts`. No code change
