@@ -1,0 +1,31 @@
+dish_id,dish_name,cuisine,category,base_price_eur,calories,allergens
+1,Margherita Pizza,Italian,main,9.5,680,"gluten, dairy"
+2,Pepperoni Pizza,Italian,main,11.0,820,"gluten, dairy"
+3,Spaghetti Carbonara,Italian,main,11.5,820,"gluten, dairy, eggs"
+4,Lasagna Bolognese,Italian,main,12.0,910,"gluten, dairy, eggs"
+5,Tiramisu,Italian,dessert,5.5,420,"gluten, dairy, eggs"
+6,Salmon Nigiri (6 pcs),Japanese,main,14.0,560,"fish, soy"
+7,Tuna Sashimi (8 pcs),Japanese,main,16.5,320,"fish, soy"
+8,Ramen Shoyu,Japanese,main,12.5,720,"gluten, soy, eggs, sesame"
+9,Chicken Katsu Curry,Japanese,main,13.0,880,"gluten, eggs, soy"
+10,Miso Soup,Japanese,starter,3.5,90,soy
+11,Chicken Tikka Masala,Indian,main,12.0,780,"dairy, nuts"
+12,Paneer Butter Masala,Indian,main,11.5,720,"dairy, nuts"
+13,Lamb Biryani,Indian,main,13.5,850,"dairy, nuts"
+14,Vegetable Samosas (4 pcs),Indian,starter,5.0,380,gluten
+15,Mango Lassi,Indian,drink,4.0,240,dairy
+16,Beef Burrito,Mexican,main,10.5,780,"gluten, dairy"
+17,Chicken Quesadilla,Mexican,main,9.5,680,"gluten, dairy"
+18,Guacamole & Nachos,Mexican,starter,6.0,520,dairy
+19,Veggie Tacos (3 pcs),Mexican,main,9.0,540,gluten
+20,Classic Cheeseburger,American,main,11.0,900,"gluten, dairy, sesame"
+21,BBQ Chicken Wings (8 pcs),American,starter,8.5,620,gluten
+22,Caesar Salad,American,starter,7.5,420,"dairy, eggs, gluten, fish"
+23,New York Cheesecake,American,dessert,5.5,460,"gluten, dairy, eggs"
+24,Falafel Wrap,Middle Eastern,main,8.5,560,"gluten, sesame"
+25,Hummus Plate,Middle Eastern,starter,6.5,380,sesame
+26,Pad Thai,Thai,main,11.0,720,"peanuts, eggs, fish, soy"
+27,Green Thai Curry,Thai,main,11.5,680,"fish, peanuts"
+28,Greek Salad,Greek,starter,7.0,340,dairy
+29,Moussaka,Greek,main,11.5,820,"gluten, dairy, eggs"
+30,Espresso,Italian,drink,2.5,5,

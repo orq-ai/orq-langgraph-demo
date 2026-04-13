@@ -52,7 +52,7 @@ class Context:
 
     general_system_prompt: str = field(
         default=prompts.GENERAL_SYSTEM_PROMPT,
-        metadata={"description": "System prompt for handling general non-Toyota queries."},
+        metadata={"description": "System prompt for handling off-topic queries."},
     )
 
     def __post_init__(self) -> None:

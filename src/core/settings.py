@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     )
 
     DEFAULT_SQLITE_PATH: Path = Field(
-        default=Path("./toyota_sales.db"),
+        default=Path("./delivery_orders.db"),
         description="Default path for SQLite database",
         env="DEFAULT_SQLITE_PATH",
     )

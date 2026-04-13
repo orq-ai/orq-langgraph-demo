@@ -234,7 +234,7 @@ def check_sqlite() -> bool:
 
         db_path = settings.DEFAULT_SQLITE_PATH
     except Exception:
-        db_path = Path("toyota_sales.db")
+        db_path = Path("delivery_orders.db")
 
     if not Path(db_path).exists():
         fail(
@@ -245,7 +245,7 @@ def check_sqlite() -> bool:
 
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
-        cur = conn.execute("SELECT COUNT(*) FROM fact_sales")
+        cur = conn.execute("SELECT COUNT(*) FROM fact_orders")
         count = cur.fetchone()[0]
         conn.close()
     except Exception as e:
@@ -254,12 +254,12 @@ def check_sqlite() -> bool:
 
     if count == 0:
         fail(
-            "SQLite database is empty (fact_sales has 0 rows)",
+            "SQLite database is empty (fact_orders has 0 rows)",
             "run `make ingest-sql`",
         )
         return False
 
-    ok(f"SQLite database has {count:,} rows in fact_sales")
+    ok(f"SQLite database has {count:,} rows in fact_orders")
     return True
 
 
