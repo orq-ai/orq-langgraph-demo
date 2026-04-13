@@ -10,8 +10,8 @@ needed for the eval pipeline to pick it up.
 import os
 from typing import Any, Dict, List
 
-import httpx
 from evaluatorq import EvaluationResult
+import httpx
 
 API_BASE = "https://api.orq.ai/v2"
 

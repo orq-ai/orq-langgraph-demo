@@ -14,7 +14,7 @@ load_dotenv()
 
 # Add src to path so we can import settings
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from core.settings import settings
+from core.settings import settings  # noqa: E402
 
 
 def main():
@@ -65,10 +65,12 @@ def main():
                 k: json.dumps(v) if isinstance(v, (list, dict)) else v
                 for k, v in ex["inputs"].items()
             }
-            items.append({
-                "inputs": flat_inputs,
-                "expected_output": json.dumps(ex["outputs"]),
-            })
+            items.append(
+                {
+                    "inputs": flat_inputs,
+                    "expected_output": json.dumps(ex["outputs"]),
+                }
+            )
 
         print(f"Uploading {len(items)} datapoints...")
         client.datasets.create_datapoints(

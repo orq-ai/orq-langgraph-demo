@@ -1,6 +1,6 @@
 # Basic Reference RAG Implementation - Simple Makefile
 
-.PHONY: help install lint format check tests clean run run-orq-agent dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset evals-compare-prompts evals-grow-from-traces
+.PHONY: help install lint format check tests clean run run-orq-agent dev setup setup-workspace doctor ingest-sql ingest-kb ingest-data evals-upload-dataset evals-run evals-compare-prompts evals-help
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -36,7 +36,7 @@ run-orq-agent: ## Run the Chainlit web interface against the managed orq.ai Agen
 	uv run chainlit run src/chainlit_app_orq.py
 
 dev: ## Run LangGraph Studio for development
-	uv run langgraph dev
+	uv run langgraph dev --allow-blocking
 
 # orq.ai workspace bootstrap (first-run)
 setup-workspace: ## Bootstrap orq.ai workspace: create KB, system prompt, and eval dataset (idempotent)
@@ -60,22 +60,14 @@ ingest-data: ingest-sql ingest-kb ## Ingest sales data + PDFs into their respect
 evals-upload-dataset: ## Upload evaluation dataset to orq.ai
 	uv run python evals/create_eval_dataset.py
 
-evals-run: ## Run evaluation pipeline using evaluatorq
-	uv run python evals/run_evaluation_pipeline.py --from-file
+evals-run: ## Run evaluation pipeline against variant A (default)
+	uv run python evals/run_evals.py
 
-evals-compare-prompts: ## A/B test the two system prompt variants against the eval dataset
-	uv run python evals/run_prompt_experiment.py
-
-evals-grow-from-traces: ## Append new eval datapoints from exported traces JSON (pass FILE=path.json)
-	@if [ -z "$(FILE)" ]; then echo "Usage: make evals-grow-from-traces FILE=path/to/traces.json [APPLY=1]"; exit 1; fi
-	@if [ "$(APPLY)" = "1" ]; then \
-		uv run python scripts/grow_eval_dataset.py --from-file $(FILE) --apply; \
-	else \
-		uv run python scripts/grow_eval_dataset.py --from-file $(FILE); \
-	fi
+evals-compare-prompts: ## A/B test variants A and B of the system prompt
+	uv run python evals/run_evals.py --variants A,B
 
 evals-help: ## Show evaluation script help
-	uv run python evals/run_evaluation_pipeline.py --help
+	uv run python evals/run_evals.py --help
 
 # Cleanup
 clean: ## Clean up cache and temporary files
