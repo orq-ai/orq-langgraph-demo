@@ -4,6 +4,7 @@
 
 This repo is the canonical reference for wiring **LangGraph** to the **orq.ai platform** end-to-end — managed prompts, hybrid Knowledge Base search, the AI Router, LLM-judge evaluators, versioned datasets, and the evaluatorq pipeline — all exercised by a concrete agent that reasons over both **structured delivery-order data** (SQLite, ~1,700 rows across dishes, restaurants, and cities) and **unstructured operations documents** (menu book, refund/SLA policy, food safety, allergen labeling, ops handbook, customer-service playbook — in an orq.ai Knowledge Base). Every integration surface is wired, traced, and evaluated, so you can clone the repo and see what a production-shaped LangGraph-on-orq.ai deployment looks like end-to-end.
 
+## LangGraph Integration modes
 **Two tracing backends ship side by side.** The default `orq_ai_sdk.langchain` **callback handler** is the recommended path for new LangGraph projects — zero OTEL setup, every node auto-registered in the orq.ai Studio. A parallel **OpenTelemetry exporter** is kept as an educational reference for teams that already run their own OTEL collector. Switching is a one-line `.env` change (`ORQ_TRACING_BACKEND`). For the full tradeoff analysis, setup, and switching instructions, see the [**LangGraph ↔ orq.ai integration guide**](LANGGRAPH-INTEGRATION.md).
 
 ## What you'll learn
@@ -467,8 +468,12 @@ See [`evals/run_evals.py`](evals/run_evals.py) and
 (env vars, orq.ai reachability, KB, prompt, SQLite, test search) and prints a
 clear remediation for each failure.
 
-For known pitfalls with workarounds (SDK drift, OTEL flushing, KB quirks,
-dotenv parsing, etc.), see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+For known pitfalls with workarounds (tracing backend setup, KB quirks,
+dotenv parsing, etc.), see [TROUBLESHOOTING.md](TROUBLESHOOTING.md). The
+tracing section is split by backend — pick the one matching your
+`ORQ_TRACING_BACKEND` setting. See also
+[LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the full backend
+comparison.
 
 **Missing data:**
 ```bash

@@ -27,7 +27,7 @@ the orchestration logic lives.
 | **Arbitrary Python tools** | ✅ Any function can be a tool (`search_documents`, `get_top_dishes`, `get_orders_by_dish`, etc.) | ❌ Needs an MCP server or HTTP tool wrapper to call repo code |
 | **Custom routing / conditional edges** | ✅ Explicit `StateGraph` nodes (`guard_input → router → call_model → tools → call_model`) | ⚠️ Implicit — the agent LLM decides based on instructions |
 | **State management** | LangGraph state machine (`State` dataclass, typed transitions) | orq.ai Memory Stores (when configured) |
-| **Observability** | Via OTEL → orq.ai Traces (one graph tree per invocation) | Native — every step is captured automatically in Traces |
+| **Observability** | Via the orq.ai tracing integration → Traces (one graph tree per invocation). Callback handler by default, OTEL exporter alternative — see [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) | Native — every step is captured automatically in Traces |
 | **Guardrails** | `OrqSafetyGuardrail` called from `guard_input` node | Attach evaluator as guardrail directly to the agent config |
 | **Cost tracking** | Via router usage data per span | Same, plus agent-level aggregates in the Studio |
 | **Multi-agent coordination** | ✅ Easy (compose multiple `StateGraph`s) | ✅ Via sub-agent calls in the Studio, but less flexible |

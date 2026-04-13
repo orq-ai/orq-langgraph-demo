@@ -7,8 +7,11 @@ The Hybrid Data Agent is a reference implementation of a conversational AI agent
 The diagram below groups the moving parts by where they *run*: the
 **Chainlit UI** and **LangGraph Agent** are Python code in this repo; every
 box on the right labeled `[[ ... ]]` is a service on the **orq.ai platform**
-that the agent consumes. Every LangGraph node also emits an OTEL span that
-lands in orq.ai Traces (the dotted line at the bottom).
+that the agent consumes. Every LangGraph node also emits a span that lands
+in orq.ai Traces (the dotted line at the bottom) — routed either through
+the `orq_ai_sdk.langchain` callback handler (default) or the OpenTelemetry
+exporter, depending on `ORQ_TRACING_BACKEND`. See
+[LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md).
 
 ```mermaid
 flowchart LR
@@ -46,7 +49,7 @@ flowchart LR
     ToolsNode --> SQLite[("SQLite<br/>fact_orders star schema")]
     KB -.ingested from.-> PDFs[/"PDF corpus<br/>menu · policies · ops handbook"/]
 
-    Graph -.OTEL spans.-> Traces[["Traces<br/>orq.ai Studio"]]
+    Graph -.trace spans.-> Traces[["Traces<br/>orq.ai Studio"]]
 ```
 
 ## Key Architectural Components
@@ -58,7 +61,7 @@ flowchart LR
   - Safety guardrail (orq.ai LLM Evaluator, with OpenAI Moderation as fallback)
   - Query classification router
   - Tool-calling agent with GPT-4.1-mini routed through the orq.ai AI Router
-  - State management for conversation context (TypedDict, serialization-friendly for OTEL traces)
+  - State management for conversation context (TypedDict, serialization-friendly for trace spans)
   - System prompt fetched from orq.ai Prompts at startup (with local fallback)
 
 ### 2. **Data Access Layer**
@@ -143,7 +146,7 @@ sequenceDiagram
     Chainlit->>Chainlit: render answer + PDF previews from artifacts
     Chainlit-->>User: grounded answer with citations
 
-    Note over Graph,Router: Every step emits an OTEL span<br/>to orq.ai Traces
+    Note over Graph,Router: Every step emits a span<br/>to orq.ai Traces
 ```
 
 ## Architecture Trade-offs

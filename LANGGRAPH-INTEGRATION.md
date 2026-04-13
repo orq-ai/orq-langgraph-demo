@@ -120,22 +120,12 @@ entirely).
 
 ## Troubleshooting
 
-For the OTEL backend specifically — fragmented traces, `LANGSMITH_OTEL_ENABLED`
-gotchas, and the import-order requirement — see the "OpenTelemetry tracing"
-section in [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
+[TROUBLESHOOTING.md](./TROUBLESHOOTING.md) has a per-backend section:
 
-For the callback backend, if spans aren't showing up in Studio:
-
-1. Confirm `ORQ_TRACING_BACKEND="callback"` is set in `.env` and nothing else
-   overrides it in the shell environment.
-2. Confirm `ORQ_API_KEY` is set — `setup_callback_tracing()` raises
-   `RuntimeError` if it's missing.
-3. Confirm `ORQ_DISABLE_TRACING` is `1` — the dispatcher sets this via
-   `os.environ.setdefault` to prevent `evaluatorq` from registering a second
-   tracer that would intercept your spans.
-4. Check the orq.ai Studio Traces tab with a time filter set to the last few
-   minutes — the callback handler's 1-second debounce + batch upload means
-   very recent spans appear with a short delay.
+- **Callback backend** → "Callback backend" section — spans not appearing,
+  spans routed to the wrong project, etc.
+- **OTEL backend** → "OpenTelemetry backend" section — fragmented traces,
+  `LANGSMITH_OTEL_ENABLED` gotchas, import-order requirement.
 
 ## Reference
 

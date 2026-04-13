@@ -24,22 +24,66 @@ break is. What it checks (see [`scripts/doctor.py`](scripts/doctor.py)):
 | 9 | `evaluatorq` is importable | The `evals` dependency group isn't synced — run `uv sync --group evals` |
 
 If every check passes but you're still seeing weird behaviour, the issues
-below are the ones that are **not** caught by `make doctor` — mostly OTEL
+below are the ones that are **not** caught by `make doctor` — mostly tracing
 wiring and `.env` parsing edge cases worth knowing about.
+
+Tracing is the one subsystem `make doctor` can't fully validate — spans
+flush asynchronously and symptoms only show up in the orq.ai Studio Traces
+tab after the fact. Which gotcha you hit depends on which backend you're
+running (`ORQ_TRACING_BACKEND` in `.env`); the sections below are split
+accordingly. For the backend comparison and how to switch, see
+[LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md).
 
 ---
 
-## OpenTelemetry tracing
+## Callback backend (`ORQ_TRACING_BACKEND="callback"`, default)
 
-> **Applies only when `ORQ_TRACING_BACKEND="otel"`.** The default backend
-> (`callback`) uses `orq_ai_sdk.langchain`'s callback handler instead and is
-> not affected by any of the gotchas below. See
-> [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for how the two
-> backends compare.
+The callback path registers `orq_ai_sdk.langchain`'s handler via LangChain's
+configure-hook system. It's much simpler than the OTEL path, so there are
+only a couple of failure modes worth knowing about.
 
-Tracing is the one subsystem `make doctor` can't fully validate — spans
-flush asynchronously and symptoms only show up in the orq.ai Studio
-Traces tab after the fact. Here are the four gotchas we hit.
+### Spans don't appear in the Studio Traces tab
+
+**Symptom:** you run the Chainlit app or `make evals`, the agent answers
+fine, but the Traces tab shows nothing for the latest runs.
+
+**Checklist:**
+
+1. Confirm the backend is actually `callback` — `echo $ORQ_TRACING_BACKEND`
+   or check `.env`. If a shell export overrides `.env`, the dispatcher picks
+   the shell value.
+2. Confirm `ORQ_API_KEY` is set. `setup_callback_tracing()` raises
+   `RuntimeError` on missing key, so if startup crashed with that message,
+   that's the reason.
+3. Wait ~2 seconds before checking the Traces tab. The SDK's `OrqTracesClient`
+   debounces span uploads on a 1-second timer and batches a whole trace into
+   one OTLP envelope — very recent spans have a short delay.
+4. Confirm `ORQ_DISABLE_TRACING=1` is set. The dispatcher sets it via
+   `os.environ.setdefault` to stop `evaluatorq` from registering a second
+   tracer that would swallow your spans. If another module set it to `"0"`
+   or `""` earlier, that wins — check your env vars.
+
+### Spans appear in the wrong orq.ai project
+
+**Symptom:** spans are in Studio but under `Default` instead of the project
+your `ORQ_PROJECT_NAME` points to.
+
+**Root cause:** the orq.ai API key you're using is scoped to a different
+project than `ORQ_PROJECT_NAME`. Project-scoped keys route traces to their
+bound project regardless of what you configured.
+
+**Fix:** same as the resource-routing gotcha — generate a workspace-level
+API key in the Studio, or set `ORQ_PROJECT_NAME` to match the key's bound
+project.
+
+---
+
+## OpenTelemetry backend (`ORQ_TRACING_BACKEND="otel"`)
+
+> **Applies only when you've explicitly switched to the OTEL backend.** The
+> default (`callback`) is not affected by any of the gotchas in this section.
+
+Three gotchas we hit when the OTEL path was our primary integration:
 
 ### Traces appear fragmented / flat (individual LLM spans, no graph tree)
 
@@ -66,7 +110,7 @@ def _flush_on_exit() -> None:
 atexit.register(_flush_on_exit)
 ```
 
-See [`src/assistant/tracing.py`](src/assistant/tracing.py).
+See [`src/assistant/tracing_otel.py`](src/assistant/tracing_otel.py).
 
 ### `LANGSMITH_OTEL_ENABLED` is required for LangGraph traces
 
@@ -74,7 +118,7 @@ See [`src/assistant/tracing.py`](src/assistant/tracing.py).
 
 **Root cause:** LangChain/LangGraph's built-in tracer is **off by default**. The three env vars that turn it on also look like they route to LangSmith — but with `LANGSMITH_OTEL_ONLY=true` they route to the OTEL exporter (i.e. *your* orq.ai endpoint) instead of LangSmith.
 
-**Required setup** (see [`src/assistant/tracing.py`](src/assistant/tracing.py)):
+**Required setup** (see [`src/assistant/tracing_otel.py`](src/assistant/tracing_otel.py)):
 ```python
 os.environ["LANGSMITH_OTEL_ENABLED"] = "true"
 os.environ["LANGSMITH_TRACING"] = "true"
