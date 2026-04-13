@@ -24,13 +24,13 @@ Requires in the environment (via .env or shell):
 
 import json
 import os
+from pathlib import Path
 import re
 import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import httpx
 from dotenv import load_dotenv
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from assistant.prompts import SYSTEM_PROMPT  # noqa: E402
@@ -320,7 +320,7 @@ def setup_knowledge_base(api_key: str, path: str) -> str:
     body = response.json()
     kb_id = _id(body)
     print(f"  → created new KB: {kb_id}")
-    print(f"    Next step: run `make ingest-kb` to upload the PDFs.")
+    print("    Next step: run `make ingest-kb` to upload the PDFs.")
     return kb_id
 
 
@@ -363,9 +363,7 @@ def setup_system_prompt(api_key: str, path: str) -> str:
     """Find or create the default system prompt. Returns its ID."""
     print(f"\n[3/10] System prompt '{PROMPT_KEY}'")
 
-    existing = _paginate(
-        api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY
-    )
+    existing = _paginate(api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY)
     if existing:
         prompt_id = _id(existing)
         print(f"  → reusing existing prompt: {prompt_id}")
@@ -414,9 +412,7 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
     """Find or create the LLM safety evaluator used as an input guardrail. Returns its ID."""
     print(f"\n[5/10] Safety evaluator '{SAFETY_EVAL_KEY}'")
 
-    existing = _paginate(
-        api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY
-    )
+    existing = _paginate(api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY)
     if existing:
         eval_id = _id(existing)
         print(f"  → reusing existing safety evaluator: {eval_id}")
@@ -476,9 +472,7 @@ def _create_llm_evaluator(
             timeout=15.0,
         )
         if patch_response.status_code >= 400:
-            raise RuntimeError(
-                f"Failed to update prompt on {key}: {patch_response.text}"
-            )
+            raise RuntimeError(f"Failed to update prompt on {key}: {patch_response.text}")
         print(f"  → updated prompt on existing {key} evaluator: {eval_id}")
         return eval_id
 
@@ -562,9 +556,7 @@ def setup_source_citations_evaluator(api_key: str, path: str) -> str:
             timeout=15.0,
         )
         if delete_response.status_code >= 400 and delete_response.status_code != 404:
-            raise RuntimeError(
-                f"Failed to delete stale evaluator: {delete_response.text}"
-            )
+            raise RuntimeError(f"Failed to delete stale evaluator: {delete_response.text}")
 
     return _create_llm_evaluator(
         api_key,
@@ -585,7 +577,7 @@ def setup_managed_agent(api_key: str, path: str, kb_id: str) -> str:
 
     This is the 'Approach B' comparison to the LangGraph agent — same KB, same
     sample data, but orchestrated entirely via the orq.ai platform instead of
-    Python code. See docs/comparing-approaches.md for the full rundown.
+    Python code. See comparing-approaches.md for the full rundown.
     """
     print(f"\n[9/10] Managed Agent '{AGENT_KEY}'")
 
@@ -660,9 +652,7 @@ def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
     print(f"\n[10/10] Evaluation dataset '{DATASET_KEY}'")
 
-    existing = _paginate(
-        api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY
-    )
+    existing = _paginate(api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY)
     if existing:
         dataset_id = _id(existing)
         count = (existing.get("metadata") or {}).get("datapoints_count", 0)
@@ -716,7 +706,7 @@ def main() -> int:
         source_citations_eval_id = setup_source_citations_evaluator(api_key, project_path)
         grounding_eval_id = setup_grounding_evaluator(api_key, project_path)
         hallucination_eval_id = setup_hallucination_evaluator(api_key, project_path)
-        agent_id = setup_managed_agent(api_key, project_path, kb_id)
+        setup_managed_agent(api_key, project_path, kb_id)
         dataset_id = setup_dataset(api_key, project_path)
     except Exception as e:
         print(f"\n❌ Bootstrap failed: {e}")
@@ -740,7 +730,7 @@ def main() -> int:
     print(f'ORQ_GROUNDING_EVALUATOR_ID="{grounding_eval_id}"')
     print(f'ORQ_HALLUCINATION_EVALUATOR_ID="{hallucination_eval_id}"')
     print(f'ORQ_MANAGED_AGENT_KEY="{AGENT_KEY}"')
-    print(f"# Dataset ID (not read by the app, informational only):")
+    print("# Dataset ID (not read by the app, informational only):")
     print(f"# ORQ_DATASET_ID={dataset_id}")
     print("# ───────────────────────────────────────────────────────────────")
     print()

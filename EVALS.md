@@ -5,19 +5,23 @@ The evaluation pipeline consists of:
 
 - **Dataset Creation**: Upload test cases to orq.ai
 - **Evaluation Execution**: Run the assistant against test cases and measure performance using [evaluatorq](https://docs.orq.ai/docs/experiments/api)
-- **Metrics**: We focus on tool selection accuracy
+- **Metrics**: Four scorers — `tool-accuracy` (local), `source-citations`, `response-grounding`, `hallucination-check` (orq.ai LLM evaluators)
+- **A/B Testing**: Run the same dataset against two system prompt variants in a single experiment to compare scorer results side-by-side
 
-![Evaluating Tool Calling](media/tool-calling-evals.png)
+![Experiment grid with all four scorers](media/experiment_grid_scorers.png)
 
 ## Quick Start
 
 ```bash
-# One-time bootstrap: creates the dataset (+ KB + system prompt) on orq.ai.
+# One-time bootstrap: creates the dataset (+ KB + system prompt A & B) on orq.ai.
 # Safe to re-run — it reuses existing entities by key.
 make setup-workspace
 
 # Run evaluation pipeline (against the local JSONL file by default)
 make evals-run
+
+# A/B test the two system prompt variants against the same dataset
+make evals-compare-prompts
 
 # Show help for evaluation scripts
 make evals-help
@@ -69,10 +73,15 @@ The evaluation dataset (`evals/datasets/tool_calling_evals.jsonl`) contains 15 t
 
 ```
 evals/
-|-- create_eval_dataset.py                # Upload dataset to orq.ai
-|-- run_evaluation_pipeline.py            # Run evaluation pipeline
+|-- create_eval_dataset.py                # Standalone dataset uploader (make evals-upload-dataset)
+|-- run_evals.py                          # Unified entry point — single variant OR A/B
+|                                         #   make evals-run                → variant A
+|                                         #   make evals-compare-prompts    → --variants A,B
+|-- _shared.py                            # Shared helpers: the agent @job factory,
+|                                         #   tool extraction, dataset loading, tool_accuracy_scorer
+|-- orq_scorers.py                        # LLM-evaluator scorers invoked via /v2/evaluators/{id}/invoke
 `-- datasets/
-    `-- tool_calling_evals.jsonl                  # Test cases dataset
+    `-- tool_calling_evals.jsonl          # 15 test cases (sql_only / document_only / mixed)
 ```
 
 ### Example Test Case
@@ -124,11 +133,11 @@ View at: https://my.orq.ai/datasets/01ARZ3NDEKTSV4RRFFQ69G5FAV
 Execute the evaluation against your assistant:
 
 ```bash
-# Run with local file (default)
+# Run the single-variant pipeline (variant A, uses the cached default prompt)
 make evals-run
 
-# Or run against an orq.ai dataset by ID
-python evals/run_evaluation_pipeline.py <dataset_id>
+# Or call the script directly
+uv run python evals/run_evals.py
 ```
 
 **What this does:**
@@ -151,21 +160,65 @@ Evaluation completed!
 Results available in orq.ai Studio: https://my.orq.ai/experiments
 ```
 
+## Step 3: A/B Test Prompt Variants
+
+The system prompt lives in orq.ai, so you can compare two versions against
+the evaluation dataset without touching code. `make setup-workspace`
+creates two variants:
+
+- **Variant A** (`ORQ_SYSTEM_PROMPT_ID`) — the canonical prompt with
+  grounding rules, routing instructions, and source-attribution policy.
+- **Variant B** (`ORQ_SYSTEM_PROMPT_ID_VARIANT_B`) — a deliberately
+  concise version that strips the verbose sections.
+
+Run both through the same 15 datapoints in a single experiment:
+
+```bash
+make evals-compare-prompts
+```
+
+**What this does** (see [`evals/run_evals.py`](evals/run_evals.py)):
+
+- `--variants A,B` triggers the A/B path: fetches each variant via
+  `fetch_prompt_by_id()` and builds one evaluatorq job per variant using
+  the shared `make_agent_job()` factory in [`evals/_shared.py`](evals/_shared.py)
+- Each job invokes the graph with `Context(system_prompt=...)` overriding
+  the cached default, so no code edit is needed to swap prompts
+- Runs all four scorers (`tool-accuracy`, `source-citations`,
+  `response-grounding`, `hallucination-check`) against both variants
+- Syncs results to orq.ai Studio as a single experiment with both
+  variants as columns
+
+The single-variant case (`make evals-run` → `--variants A`) is the same
+code path with a one-element variants list — no separate script.
+
+![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
+
+**To iterate on a variant:** open the prompt in the orq.ai Studio
+(`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), edit,
+click Publish, and re-run `make evals-compare-prompts`. No code change
+or redeploy — the experiment picks up the latest published version on
+the next run, thanks to `fetch_prompt_by_id()` being called fresh each
+time.
+
 ## Evaluation Metrics
 
 Each scorer returns `EvaluationResult(value=<bool>, pass_=<bool>, explanation=...)`.
 The boolean `value` makes the orq.ai Studio color-code experiment cells
-green/red, and `pass_` lets evaluatorq exit non-zero on any failure for
-CI/CD gating.
+green/red. `pass_` feeds evaluatorq's built-in regression gate, which calls
+`sys.exit(1)` if any row fails — useful for CI, noisy for local dev. Both
+eval scripts pass `_exit_on_failure=False` so transient LLM-judge flakes
+don't kill the make target; failures still surface in the Studio table. Flip
+the flag (or wrap the call) in CI to re-enable hard-fail on regression.
 
 ### 1. Tool Accuracy Scorer (local)
 
 - **True** (green): All expected tools were called (additional tools are allowed)
 - **False** (red): One or more expected tools are missing
 
-Defined in `evals/run_evaluation_pipeline.py` — stays local because it needs
-the agent's `tools_called` output field which isn't part of the standard
-orq.ai Python evaluator log surface.
+Defined in `evals/_shared.py` — stays local because it needs the agent's
+`tools_called` output field which isn't part of the standard orq.ai Python
+evaluator log surface.
 
 ### 2. Source Citations (orq.ai LLM evaluator)
 
@@ -199,8 +252,10 @@ next eval run picks up the change. See
 - **False** (red): The response makes claims not present in the retrievals
 
 Registered as a workspace LLM evaluator `response-grounding`. This scorer
-needs the retrievals to work, so the job captures `state.retrieved_documents`
-and passes them to the evaluator via `orq_scorers.py`.
+needs the retrievals to work, so the job captures every ToolMessage's
+content — KB chunks *and* SQL query results — via
+`extract_tool_outputs_from_messages()` in `evals/_shared.py` and passes
+them to the evaluator as the `retrievals` field in `orq_scorers.py`.
 
 ### 4. Hallucination Check (orq.ai LLM evaluator)
 
@@ -221,9 +276,11 @@ contradicted"). Same retrievals plumbing as the grounding scorer.
 
 ### Key Metrics to Monitor
 
-- **Overall Tool Accuracy**: Percentage of correct tool selections
-- **Category Performance**: How well each query type performs
-- **Response Quality**: Content relevance and completeness. (Work in Progress) We need ground-truth answers and feedback to start computing response quality
+- **Tool Accuracy** — are the expected tools being called?
+- **Source Citations** — does the response attribute its claims?
+- **Response Grounding** — are all claims supported by the retrieved context?
+- **Hallucination Check** — are any claims contradicted by or absent from the retrievals?
+- **A/B delta** — when running `make evals-compare-prompts`, the scorer column deltas between variant A and variant B tell you whether a prompt change is a net win before you publish it.
 
 ----
 Author: Arian Pasquali

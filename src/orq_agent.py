@@ -1,7 +1,7 @@
 """Alternative entry point: invoke a managed orq.ai Agent instead of the LangGraph graph.
 
 This is Approach B of the "LangGraph vs managed Agent" comparison (see
-`docs/comparing-approaches.md`). It talks to the same Knowledge Base and
+`comparing-approaches.md`). It talks to the same Knowledge Base and
 shares the same project as the LangGraph agent, but the orchestration,
 tool calling, and system prompt live entirely inside the orq.ai Studio
 rather than in Python code.
@@ -41,19 +41,13 @@ def _extract_text(body: Dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        texts = [
-            p.get("text", "")
-            for p in content
-            if isinstance(p, dict) and p.get("text")
-        ]
+        texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("text")]
         if texts:
             return "\n".join(texts)
     return str(body)
 
 
-async def invoke_managed_agent(
-    message: str, agent_key: Optional[str] = None
-) -> str:
+async def invoke_managed_agent(message: str, agent_key: Optional[str] = None) -> str:
     """Invoke the managed orq.ai Agent and return its final text reply.
 
     Args:
@@ -70,9 +64,7 @@ async def invoke_managed_agent(
 
     key = agent_key or os.environ.get("ORQ_MANAGED_AGENT_KEY")
     if not key:
-        raise RuntimeError(
-            "ORQ_MANAGED_AGENT_KEY is not set. Run `make setup-workspace` first."
-        )
+        raise RuntimeError("ORQ_MANAGED_AGENT_KEY is not set. Run `make setup-workspace` first.")
 
     payload = {
         "agent_key": key,

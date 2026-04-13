@@ -1,36 +1,35 @@
 ## Hybrid Data Agent
 
-Welcome to the Hybrid Data Agent — a reference implementation of a LangGraph agent wired to the orq.ai platform. This proof-of-concept answers questions that require both structured and unstructured data by combining sales records (SQLite) with manuals and contracts (orq.ai Knowledge Base) — all managed end-to-end through orq.ai.
+Welcome to the **Hybrid Data Agent** — a reference implementation of a LangGraph agent wired end-to-end to the orq.ai platform. It answers questions that span **structured sales data** (SQLite) and **unstructured documents** (owner's manuals, warranty policies, contracts — stored in the orq.ai Knowledge Base).
 
-### What This Assistant Can Do
+### What this assistant can do
 
-- **Query Sales Data**: Answer questions about vehicle sales, models, countries, and order types using SQL
-- **Search Documents**: Extract information from contracts, warranty policies, and owner's manuals via the orq.ai Knowledge Base
-- **Hybrid Analysis**: Combine both data sources to answer complex questions and get insights
+- **Query sales data** — monthly/yearly sales per model, country, region, powertrain, etc.
+- **Search documents** — owner's manuals, warranty policies, and Toyota/Lexus 2023 contracts
+- **Hybrid analysis** — combine both sources to answer questions that need sales numbers *and* policy/product context
 
-### Example Questions You Can Ask
+### Example questions
 
-- **SQL Queries**: "Monthly RAV4 HEV sales in Germany in 2024"
-- **Document Search**: "What is the standard Toyota warranty for Europe?"
-- **Owner's Manual**: "Where is the tire repair kit located for the UX?"
-- **Hybrid Analysis**: "Compare Toyota vs Lexus SUV sales in Western Europe and summarize warranty differences"
+- **Sales**: *"Monthly RAV4 HEV sales in Germany in 2024"*
+- **Warranty**: *"What is the standard Toyota warranty for Europe?"*
+- **Owner's manual**: *"Where is the tire repair kit located in a Toyota C-HR?"*
+- **Safety features**: *"What safety features does the Yaris Cross have?"*
+- **Hybrid**: *"How is RAV4 performing in sales and what maintenance does it require?"*
 
-### Architecture Overview
+Available PDFs: RAV4 manual, Toyota C-HR manual, Yaris Cross manual, Warranty Policy Appendix, Toyota 2023 contract, Lexus 2023 contract.
 
-This assistant uses:
-- **LangGraph Agent** with conditional routing and safety guardrails
-- **orq.ai AI Router** for LLM calls (cost tracking, fallbacks, multi-provider access)
-- **orq.ai Knowledge Base** for managed document storage, embeddings, and vector search
-- **orq.ai Prompts** for versioned system prompt management
-- **orq.ai Traces** (via OpenTelemetry) for end-to-end observability
-- **SQL Tools** for structured sales data queries
-- **OpenAI Moderation** for content safety filtering
+### Architecture overview
 
-![Agent Architecture](https://rag-reference-demo.onrender.com/public/agent_architecture.png)
+- **LangGraph agent** with conditional routing, a tool loop, and an input safety node
+- **orq.ai AI Router** for all LLM calls — cost tracking, fallbacks, multi-provider access via one endpoint
+- **orq.ai Knowledge Base** — managed chunking, embeddings, and hybrid search
+- **orq.ai Prompts** — versioned system prompts, A/B-testable against the eval dataset
+- **orq.ai Traces** — full LangGraph execution tree via OpenTelemetry, with cost + latency per node
+- **Whitelisted SQL tools** — the agent picks from a fixed set of parameterized query types; no free-form SQL
 
-#### Security Trade-offs
+### Security posture
 
-- **Input Guardrails**: OpenAI Moderation API filters all incoming messages before processing. It is a simple solution given the time constraints. It is the very minimum we need to have for the majority of the applications.
-- **Read-Only Database Access**: SQLite connections use `mode=ro` to prevent data modification. Ideally LLM should not have direct access to database because we risk SQL injection and data leak. Given the time constraint this is an initial implementation that keeps the agent flexible but do not allow any destructive SQL command to be executed. It is important to mention that ata leakage is not protected enough with the current version.
-- **Grounded Responses**: Prompt engineering to mitigate hallucination by requiring source attribution. Further reasoning can be implemented but latency would be penalized. In order to keep improving that we need a proper evaluation pipeline in place to iterate properly.
-- **Smart routing with Off-topic detection**: Off-topic conversations are a risky vector for Prompt or SQL injection and jailbreaking. We block that with a router node.
+- **Input safety** — every user message is classified by an **orq.ai LLM evaluator** (`ORQ_SAFETY_EVALUATOR_ID`) before the agent does any work. Unsafe inputs are blocked with a refusal. If the evaluator is unreachable, the guardrail fails open to OpenAI Moderation as a fallback.
+- **Read-only, whitelisted SQL** — the agent never writes SQL. It calls typed tools that map to predefined query types in `sql_schemas.py`, parameters are validated, and the SQLite database is opened with `mode=ro`. No injection surface, no destructive writes.
+- **Off-topic routing** — the router node classifies queries as `toyota`, `more-info`, or `general`. Off-topic prompts are answered with a polite refusal by a dedicated node, which blunts prompt-injection and jailbreak attempts.
+- **Grounded responses** — the system prompt requires the agent to cite the source (document name or tool output) for every factual claim. The `source-citations`, `response-grounding`, and `hallucination-check` evaluators verify this in the eval pipeline.

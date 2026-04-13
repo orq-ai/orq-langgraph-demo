@@ -4,7 +4,50 @@ The Hybrid Data Agent is a reference implementation of a conversational AI agent
 
 ## Architecture Overview Diagram
 
-![RAG Architecture](media/rag-architecture.png)
+The diagram below groups the moving parts by where they *run*: the
+**Chainlit UI** and **LangGraph Agent** are Python code in this repo; every
+box on the right labeled `[[ ... ]]` is a service on the **orq.ai platform**
+that the agent consumes. Every LangGraph node also emits an OTEL span that
+lands in orq.ai Traces (the dotted line at the bottom).
+
+```mermaid
+flowchart LR
+    User([User])
+    User --> Chainlit["Chainlit UI<br/>(src/chainlit_app.py)"]
+    Chainlit --> Graph
+
+    subgraph Graph ["LangGraph Agent — src/assistant/graph.py"]
+        direction TB
+        GuardInput[guard_input]
+        Route[analyze_and_route_query]
+        CheckSafety{check_safety}
+        Block[block_unsafe_content]
+        AskMore[ask_for_more_info]
+        OffTopic[respond_to_offtopic_question]
+        CallModel[call_model]
+        ToolsNode[tools<br/>ToolNode]
+
+        GuardInput --> CheckSafety
+        CheckSafety -- unsafe --> Block
+        CheckSafety -- safe --> Route
+        Route -- toyota --> CallModel
+        Route -- more-info --> AskMore
+        Route -- general --> OffTopic
+        CallModel <-->|agentic loop| ToolsNode
+    end
+
+    GuardInput -.classifies msg.-> SafetyEval[["Safety Evaluator<br/>orq.ai LLM judge"]]
+    Route --> AIRouter[["AI Router<br/>api.orq.ai/v2/router"]]
+    CallModel --> AIRouter
+    AskMore --> AIRouter
+    OffTopic --> AIRouter
+    CallModel -.fetches at startup.-> Prompts[["Prompts<br/>variant A + B"]]
+    ToolsNode --> KB[("orq.ai Knowledge Base<br/>hybrid search")]
+    ToolsNode --> SQLite[("SQLite<br/>fact_sales star schema")]
+    KB -.ingested from.-> PDFs[/"PDF corpus<br/>manuals · contracts · warranties"/]
+
+    Graph -.OTEL spans.-> Traces[["Traces<br/>orq.ai Studio"]]
+```
 
 ## Key Architectural Components
 
@@ -12,10 +55,10 @@ The Hybrid Data Agent is a reference implementation of a conversational AI agent
 
 - **Purpose**: Manages conversation flow, safety, and tool coordination
 - **Components**:
-  - Safety guardrails (OpenAI Moderation)
+  - Safety guardrail (orq.ai LLM Evaluator, with OpenAI Moderation as fallback)
   - Query classification router
   - Tool-calling agent with GPT-4.1-mini routed through the orq.ai AI Router
-  - State management for conversation context
+  - State management for conversation context (TypedDict, serialization-friendly for OTEL traces)
   - System prompt fetched from orq.ai Prompts at startup (with local fallback)
 
 ### 2. **Data Access Layer**
@@ -54,9 +97,52 @@ Here is the list of predefined queries and their use:
 
 ## Data Flow Architecture
 
-Overview of how data flows through the agent to answer questions.
+End-to-end sequence for a single "RAV4 sales + maintenance" query. Note
+that `call_model` and `tools` form an agentic loop — the model can call
+tools, look at the results, and call more tools before emitting the final
+answer. This is why the same rows can appear multiple times in the trace
+tree for complex queries.
 
-![Data Flow Architecture](media/rag-architecture-data-diagram.png)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Chainlit as Chainlit UI
+    participant Graph as LangGraph Agent
+    participant OrqEval as orq.ai Safety Evaluator
+    participant Router as orq.ai AI Router
+    participant KB as orq.ai Knowledge Base
+    participant SQL as SQLite
+
+    User->>Chainlit: "How is RAV4 performing in sales<br/>and what maintenance does it require?"
+    Chainlit->>Graph: graph.ainvoke(messages, context)
+
+    Graph->>OrqEval: guard_input — classify safety
+    OrqEval-->>Graph: SAFE
+
+    Graph->>Router: analyze_and_route_query — LLM call
+    Router-->>Graph: type=toyota, logic=…
+
+    Graph->>Router: call_model — LLM picks tools
+    Router-->>Graph: tool_calls: [get_sales_by_model, search_documents]
+
+    par tool dispatch
+        Graph->>SQL: get_sales_by_model(RAV4)
+        SQL-->>Graph: sales rows
+    and
+        Graph->>KB: search_documents("RAV4 maintenance")
+        KB-->>Graph: SearchResults (content + artifact)
+    end
+
+    Graph->>Router: call_model — synthesize with tool results
+    Router-->>Graph: final answer (streaming)
+
+    Graph-->>Chainlit: messages (final) + ToolMessage artifacts
+    Chainlit->>Chainlit: render answer + PDF previews from artifacts
+    Chainlit-->>User: grounded answer with citations
+
+    Note over Graph,Router: Every step emits an OTEL span<br/>to orq.ai Traces
+```
 
 ## Architecture Trade-offs Analysis
 
@@ -79,8 +165,6 @@ Overview of how data flows through the agent to answer questions.
 - Query classification: ~300-500ms
 - Tool execution: ~100-400ms
 - Response generation: ~1-5s (streaming depending on the size of the answer)
-
-### Security
 
 ### Security Architecture Decisions and its layers
 
@@ -115,8 +199,8 @@ Overview of how data flows through the agent to answer questions.
 
 #### Layer 3: SQL Security
 
-1. **Predefined SQL queries as Tools**: SQL is not exposed to the LLM, the LLM only knows the tool functions.
-3. **Template Execution**: Parameterized queries with predefined templates only
+1. **Predefined SQL queries as Tools** — SQL is not exposed to the LLM; the LLM only knows the typed tool functions.
+2. **Template Execution** — parameterized queries with predefined templates only; parameters are validated before binding.
 
 #### Layer 4: Database Security
 
@@ -125,9 +209,9 @@ Overview of how data flows through the agent to answer questions.
 
 **Security Trade-offs:**
 
-- **Input Guardrails**: OpenAI Moderation API filters all incoming messages before processing. It is a simple solution given the time constraints.
-- **Database Security**: Individual SQL tools with predefined parameterized queries.
-- **Off-topic Protection**: Off-topic conversations are a risky vector for Prompt or SQL injection and jailbreaking. We block that with a router node.
+- **Input Guardrails**: Primary check is an orq.ai LLM evaluator (`hybrid-data-agent-safety`) — tunable in the Studio, auditable via the trace tree. Falls back to the OpenAI Moderation API if the evaluator is unreachable or unconfigured (`ORQ_SAFETY_EVALUATOR_ID` unset).
+- **Database Security**: The agent never writes SQL. Each SQL tool maps to a named `query_type` in `sql_schemas.py`, parameters are validated, and the SQLite database is opened `mode=ro`.
+- **Off-topic Protection**: Off-topic conversations are a risky vector for prompt injection and jailbreaking. The router node classifies queries as `toyota` / `more-info` / `general` and only the first path reaches the tool loop.
 
 **Document Serving Security:**
 
@@ -148,13 +232,17 @@ The trace, timeline, and thread views are shown in [README.md#observability](REA
 
 ### **orq.ai Evaluation (evaluatorq)**
 
-- **Dataset Management**: Ground truth datasets with 15 test questions covering SQL-only, document-only, and mixed scenarios
+- **Dataset Management**: Ground truth dataset with 15 test questions covering SQL-only, document-only, and mixed scenarios
 - **Categories Tested**:
   - SQL-only (5 questions): Model sales, top performers, regional analysis, trends, rankings
   - Document-only (5 questions): Warranty info, maintenance procedures, safety features, repair guides
   - Mixed (5 questions): Combined SQL + document responses
-- **Evaluation Metrics**: Tool selection accuracy is evaluated. It is prepared to evaluate response quality as well, but not released yet due to time constraints and lack of appropriate ground-truth.
-- **Test Coverage**: 100% perfect tool matches in ground truth dataset with real SQL responses
+- **Scorers** (four dimensions, run per row via [`evals/run_evals.py`](evals/run_evals.py)):
+  - `tool-accuracy` — local Python scorer, True iff every expected tool was called
+  - `source-citations` — orq.ai LLM judge, True iff factual claims are attributed to a source or the response is a pure refusal/clarification
+  - `response-grounding` — orq.ai LLM judge, True iff every claim is supported by the retrieved context (KB chunks AND SQL tool output)
+  - `hallucination-check` — orq.ai LLM judge, True iff no claim contradicts the retrievals
+- **A/B experiment**: `make evals-compare-prompts` runs the same dataset against two system-prompt variants (managed in orq.ai Prompts) and syncs the comparison to the Studio as a single experiment with the variants side-by-side.
 
 - **See details** at [Evals](EVALS.md).
 

@@ -9,11 +9,11 @@ This repo is a working example of a LangGraph agent that reasons over both **str
 | orq.ai feature | Problem it solves | Where it lives |
 |---|---|---|
 | **AI Router** | Multi-provider LLM access, cost tracking, fallbacks, one-line model swaps | [`src/assistant/utils.py`](src/assistant/utils.py) — `load_chat_model()` |
-| **Knowledge Base** | Managed RAG — embeddings, chunking metadata, hybrid/vector/keyword search, zero infrastructure | [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (ingest) · [`src/assistant/tools.py`](src/assistant/tools.py) (search) |
+| **Knowledge Base** | Managed RAG — embeddings, chunking metadata, hybrid/vector/keyword search, zero infrastructure | [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (ingest) · [`src/assistant/kb_tools.py`](src/assistant/kb_tools.py) (search) |
 | **Prompts** | Version system prompts without redeploying; A/B test changes against a dataset | [`src/assistant/prompts.py`](src/assistant/prompts.py) — `get_system_prompt()` |
 | **Traces (OTEL)** | Full LangGraph execution tree with cost + latency per node, tool call, and LLM request | [`src/assistant/tracing.py`](src/assistant/tracing.py) — `setup_tracing()` |
-| **evaluatorq** | Programmatic PASS/FAIL scorers, CI/CD gating, experiment comparison in the Studio | [`evals/run_evaluation_pipeline.py`](evals/run_evaluation_pipeline.py) |
-| **Datasets** | Versioned test cases, reusable across experiments, growable from production traces | [`evals/datasets/tool_calling_evals.jsonl`](evals/datasets/tool_calling_evals.jsonl) |
+| **evaluatorq** | Programmatic PASS/FAIL scorers, CI/CD gating, experiment comparison in the Studio | [`evals/run_evals.py`](evals/run_evals.py) |
+| **Datasets** | Versioned test cases, reusable across experiments | [`evals/datasets/tool_calling_evals.jsonl`](evals/datasets/tool_calling_evals.jsonl) |
 | **Workspace bootstrap** | Idempotent one-command setup for project + KB + prompt + dataset | [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md](EVALS.md) for the evaluation pipeline.
@@ -23,7 +23,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md]
 - **Query structured sales data** — answers questions about vehicle sales via predefined SQL tools
 - **Search unstructured documents** — semantic search over manuals, contracts, and warranty policies via the orq.ai Knowledge Base
 - **Combine both** — agentic tool calling iterates between SQL and document search until it has a grounded answer
-- **Stay safe** — input moderation guardrail blocks harmful content before any LLM call
+- **Stay safe** — an orq.ai LLM evaluator classifies every message as SAFE or UNSAFE before any agent work runs, with OpenAI Moderation as a fallback
 
 ## Data Sources
 
@@ -38,7 +38,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md]
 
 **Using unstructured documents:**
 - "What is the Toyota warranty coverage?"
-- "Where is the tire repair kit in the UX?"
+- "Where is the tire repair kit in a Toyota C-HR?"
 
 **Hybrid:**
 - "Compare RAV4 sales and summarize its warranty"
@@ -48,10 +48,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md]
 
 The assistant uses a multi-step LangGraph workflow with routing:
 
-1. **Safety Check**: OpenAI Moderation API filters harmful content
+1. **Safety Check**: An orq.ai LLM evaluator (`hybrid-data-agent-safety`) classifies each user message as SAFE or UNSAFE before any agent work happens. Falls back to the OpenAI Moderation API if the evaluator is unreachable.
 2. **Query Analysis**: LLM classifies the question type and intent
 3. **Context-Aware Routing**: Routes to appropriate response path:
-   - **Toyota-specific**: If it detected that question is related to Toyota it uses 
+   - **Toyota-specific**: If it detected that question is related to Toyota it uses
    tools (predefined SQL queries and semantic search) to answer the question
    - **Needs clarification**: Asks for more specific information
    - **Off-topic**: Politely redirects to Toyota/Lexus topics
@@ -92,9 +92,15 @@ Demo showing the agent using SQL capabilities to query the structured database.
 - `ORQ_API_KEY` — for orq.ai observability, evaluation, Knowledge Base, and prompts
 - `ORQ_PROJECT_NAME` — orq.ai project where datasets, experiments, prompts, and KBs live
 
-**Bootstrap outputs** (populated by `make setup-workspace` — see below):
-- `ORQ_KNOWLEDGE_BASE_ID` — ID of the Knowledge Base that holds the ingested PDFs
-- `ORQ_SYSTEM_PROMPT_ID` — ID of the system prompt managed in the orq.ai Studio
+**Bootstrap outputs** (populated by `make setup-workspace` — paste the printed block into `.env`):
+- `ORQ_KNOWLEDGE_BASE_ID` — Knowledge Base that holds the ingested PDFs
+- `ORQ_SYSTEM_PROMPT_ID` — system prompt managed in the Studio (variant A)
+- `ORQ_SYSTEM_PROMPT_ID_VARIANT_B` — second prompt variant for `make evals-compare-prompts`
+- `ORQ_SAFETY_EVALUATOR_ID` — LLM-judge evaluator that powers the `guard_input` safety node
+- `ORQ_SOURCE_CITATIONS_EVALUATOR_ID` — scorer for "does the response cite its sources?"
+- `ORQ_GROUNDING_EVALUATOR_ID` — scorer for "are all claims supported by retrieved context?"
+- `ORQ_HALLUCINATION_EVALUATOR_ID` — scorer for "does any claim contradict the retrievals?"
+- `ORQ_MANAGED_AGENT_KEY` — key of the managed orq.ai Agent that powers `make run-orq-agent`
 
 ### Option A: Local Development (Recommended)
 
@@ -117,27 +123,41 @@ cp .env.example .env
 make setup-workspace
 ```
 
-Example output:
+Example output (abridged — the real script runs 10 steps and prints all 8 env vars below the banner):
 ```
-[1/4] Project 'langgraph-demo'
+[1/10] Project 'langgraph-demo'
   → created new project: 019...
-[2/4] Knowledge Base 'hybrid-data-agent-kb'
+[2/10] Knowledge Base 'hybrid-data-agent-kb'
   → created new KB: 01K...
-[3/4] System prompt 'hybrid-data-agent-system-prompt'
+[3/10] System prompt 'hybrid-data-agent-system-prompt'
   → created new prompt: 01K...
-[4/4] Evaluation dataset 'hybrid-data-agent-tool-calling-evals'
+...
+[10/10] Evaluation dataset 'hybrid-data-agent-tool-calling-evals'
   → created new dataset: 01K...
+
+======================================================================
+✅ Workspace bootstrap complete
+======================================================================
 
 # Paste the block below into your .env file (safe to paste as-is).
 # ───────────────────────────────────────────────────────────────
 ORQ_KNOWLEDGE_BASE_ID="01K..."
 ORQ_SYSTEM_PROMPT_ID="01K..."
+ORQ_SYSTEM_PROMPT_ID_VARIANT_B="01K..."
+ORQ_SAFETY_EVALUATOR_ID="01K..."
+ORQ_SOURCE_CITATIONS_EVALUATOR_ID="01K..."
+ORQ_GROUNDING_EVALUATOR_ID="01K..."
+ORQ_HALLUCINATION_EVALUATOR_ID="01K..."
+ORQ_MANAGED_AGENT_KEY="hybrid-data-agent-managed"
 # Dataset ID (not read by the app, informational only):
 # ORQ_DATASET_ID=01K...
 # ───────────────────────────────────────────────────────────────
 ```
 
-Copy the block into your `.env` file.
+Copy the entire block into your `.env` file — all 8 variables are needed for
+the full workflow (A/B testing, LLM-judge scorers, Approach B). `.env.example`
+already has placeholders for every one; `setup-workspace` just fills in the
+real IDs.
 
 4. **Ingest data sources**
 ```bash
@@ -153,7 +173,12 @@ make run
 ```
 Visit `http://localhost:8000` to chat with the assistant.
 
-![Hybrid Data Agent UI](media/run_ui.png)
+![Hybrid Data Agent — welcome screen](media/chainlit_home_clean.png)
+
+The agent exposes its tool calls inline as the response streams in. Expand
+any step to see the exact input/output LangChain passed between nodes:
+
+![Hybrid Data Agent — inline tool trace](media/chainlit_tool_trace_yaris_safety.png)
 
 
 6. **Run the agent using LangGraph Studio**
@@ -208,7 +233,7 @@ will auto-create a KB and print its ID — paste it into `.env` to reuse on subs
 After ingestion, open the Knowledge Base in the orq.ai Studio to browse each
 datasource (one per PDF) and inspect individual chunks with their metadata.
 
-![Knowledge Base chunks](media/kb_chunks.png)
+![Knowledge Base chunks](media/kb_chunks_completed.png)
 
 ### Testing Knowledge Base search
 
@@ -232,20 +257,20 @@ that makes this work.
 Drill into a single run to inspect inputs, outputs, token usage, and cost at
 every step of the LangGraph execution.
 
-![Trace details view](media/traces_details_view.png)
+![Trace details view](media/trace_details_yaris_safety.png)
 
 ### Timeline view
 
 View execution as a timeline to spot bottlenecks and measure step durations.
 
-![Trace timeline view](media/traces_rag_timeline.png)
+![Trace timeline view](media/trace_timeline_yaris_safety.png)
 
 ### Thread view
 
 Follow the conversation as a message thread to review how the agent reasoned
 through the problem.
 
-![Trace thread view](media/traces_thread_view.png)
+![Trace thread view](media/trace_thread_yaris_safety.png)
 
 ## Tests, Continuous Integration and Evals
 
@@ -266,7 +291,7 @@ make tests
 
 ### Evals: Integrated Evaluation Pipeline using orq.ai
 
-Running full evaluation pipeline and testing realistic [sample questions](resources/converstation_starters.csv).
+Running full evaluation pipeline and testing realistic [sample questions](resources/conversation_starters.csv).
 
 ```bash
 # Command to run evaluation pipeline.
@@ -274,16 +299,23 @@ Running full evaluation pipeline and testing realistic [sample questions](resour
 make evals-run
 ```
 
+Terminal output — 15 datapoints, four scorers, per-row results synced to the Studio:
+
+![make evals-run terminal output](media/evals_run_terminal.png)
+
 **Evaluation Features:**
 
-- **Tool Selection Accuracy**: Measures correct tool usage
-- **Category Performance**: SQL-only, document-only, mixed queries
-- **orq.ai Integration**: Results tracking, experiment comparison, and analysis via [evaluatorq](https://docs.orq.ai/docs/experiments/api)
-- **15 Test Cases**: Comprehensive evaluation dataset (5 expecting SQL queries, 5 expecting semantic search, and 5 mixed queries using both)
+- **Four scorers per row** — `tool-accuracy` (local), `source-citations`, `response-grounding`, `hallucination-check` (orq.ai LLM evaluators)
+- **Balanced dataset** — 15 test cases split evenly across SQL-only, document-only, and mixed categories (5 each)
+- **A/B mode** — same dataset against two system-prompt variants via `make evals-compare-prompts`
+- **orq.ai Integration** — results sync to the Studio for per-row drill-down and cross-experiment comparison via [evaluatorq](https://docs.orq.ai/docs/experiments/api)
 
 For detailed info on how to run evaluation pipeline, see [EVALS.md](EVALS.md).
 
-![Evaluating Tool Calling](media/tool-calling-evals.png)
+In the Studio, the same run renders as a grid with every row color-coded per
+scorer — easy to spot the one outlier without scrolling the terminal:
+
+![Experiment grid with all four scorers](media/experiment_grid_scorers.png)
 
 ## Two ways to build the same agent
 
@@ -298,7 +330,7 @@ the trade-offs of code-first vs. Studio-first agent development:
 Both talk to the same Knowledge Base, same model, same project. The difference
 is where the orchestration logic lives.
 
-See [`docs/comparing-approaches.md`](docs/comparing-approaches.md) for a full
+See [`COMPARING-APPROACHES.md`](COMPARING-APPROACHES.md) for a full
 side-by-side comparison and guidance on when to pick which approach.
 
 ## Swap models via the AI Router
@@ -354,38 +386,20 @@ make evals-compare-prompts
 ```
 
 This runs the same 15 evaluation cases twice — once per variant — using
-evaluatorq's multi-job mode. Both scorers (`tool-accuracy`, `category-accuracy`)
-are applied to both variants, and the results sync to orq.ai Studio as a
-single experiment with two columns.
+evaluatorq's multi-job mode. All four scorers (`tool-accuracy`,
+`source-citations`, `response-grounding`, `hallucination-check`) are
+applied to both variants, and the results sync to orq.ai Studio as a
+single experiment with the variants side-by-side:
+
+![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
 
 **To iterate on a variant:** edit it directly in the orq.ai Studio
 (`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), publish, then
 re-run `make evals-compare-prompts`. No code change or deploy required — the
 experiment picks up the latest published version.
 
-See [`evals/run_prompt_experiment.py`](evals/run_prompt_experiment.py) for the
-job definitions and scorer wiring.
-
-## Growing the eval dataset from production traces
-
-One of orq.ai's strongest teaching points: **every trace can become an eval
-datapoint**. This repo ships a script that closes the production → eval loop:
-
-```bash
-# 1. Export traces from the orq.ai Studio (or via the orq MCP server)
-# 2. Dry-run: see what would be added
-make evals-grow-from-traces FILE=recent-traces.json
-
-# 3. Append for real and re-run the evals
-uv run python scripts/grow_eval_dataset.py --from-file recent-traces.json --apply
-make evals-run
-```
-
-The script dedupes against existing datapoints by question hash, classifies
-each new case as `sql_only` / `document_only` / `mixed` based on which tools
-were called, and never overwrites. See
-[`docs/eval-dataset-growth.md`](docs/eval-dataset-growth.md) for the full
-workflow and how to get the traces JSON.
+See [`evals/run_evals.py`](evals/run_evals.py) and
+[`evals/_shared.py`](evals/_shared.py) for the job factory and scorer wiring.
 
 ## Troubleshooting
 

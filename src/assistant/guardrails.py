@@ -1,6 +1,6 @@
+from enum import Enum
 import logging
 import os
-from enum import Enum
 from typing import Optional
 
 import httpx
@@ -44,6 +44,7 @@ class OrqSafetyGuardrail:
         # Deferred import so settings-level errors don't prevent the graph from loading
         try:
             from core.settings import settings
+
             self.evaluator_id = evaluator_id or settings.ORQ_SAFETY_EVALUATOR_ID
         except Exception:
             self.evaluator_id = evaluator_id or os.getenv("ORQ_SAFETY_EVALUATOR_ID", "")

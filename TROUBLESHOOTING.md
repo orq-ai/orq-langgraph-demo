@@ -1,69 +1,63 @@
 # Troubleshooting
 
-Real issues encountered while building this repo, with root causes and workarounds. If you hit one of these, `make doctor` should surface it with a clear remediation — this doc explains *why*.
+## Always start with `make doctor`
 
----
-
-## SDK vs API drift
-
-The installed `orq-ai-sdk` ships with Pydantic models that lag behind the actual REST API in a few places. When that happens, typed SDK calls fail with validation errors or silently strip fields. The workaround throughout this repo is **raw HTTP via `httpx`** for the affected endpoints.
-
-### Knowledge Base creation requires `type: "internal"`
-
-**Symptom:**
-```
-orq_ai_sdk.models.apierror.APIError: Status 400
-{"error":"Validation error: Invalid input at \"type\""}
+```bash
+make doctor
 ```
 
-**Root cause:** The SDK's `CreateKnowledgeRequestBody` doesn't include the `type` field, but the API requires it (values: `"internal"` or `"external"`).
+This is the first thing to run when anything feels off. It walks every
+moving piece of the setup in order and prints `✓` / `✗` per check with a
+clear remediation for each failure, so you don't have to guess where the
+break is. What it checks (see [`scripts/doctor.py`](scripts/doctor.py)):
 
-**Workaround:** We create the KB via raw HTTP in [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) (`setup_knowledge_base`) and in [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (`_create_knowledge_base`).
+| # | Check | What a failure means |
+|---|---|---|
+| 1 | `.env` parses cleanly | A malformed line (pasted script output, missing `=`) is breaking `python-dotenv` |
+| 2 | `OPENAI_API_KEY` reaches `/v1/models` | Key missing, revoked, or out of quota |
+| 3 | `ORQ_API_KEY` reaches `/v2/projects` | Key missing or revoked |
+| 4 | `ORQ_PROJECT_NAME` exists on orq.ai | You haven't run `make setup-workspace` yet, or the project was renamed |
+| 5 | Knowledge Base is reachable and has chunks | You haven't run `make ingest-kb`, or the KB ID in `.env` points at a deleted KB |
+| 6 | System prompt is fetchable | `ORQ_SYSTEM_PROMPT_ID` is stale or the prompt was deleted in the Studio |
+| 7 | A test KB search returns matches | Ingestion finished uploading but chunks are still being embedded — wait ~1 minute and re-run |
+| 8 | SQLite sales DB exists and has rows | You haven't run `make ingest-sql` |
+| 9 | `evaluatorq` is importable | The `evals` dependency group isn't synced — run `uv sync --group evals` |
 
-### Prompt create uses `prompt`, SDK expects `prompt_config`
-
-**Symptom on create:**
-```
-APIError: Status 400
-{"error":"Validation error: Invalid input: expected object, received undefined at \"prompt\""}
-```
-
-**Symptom on retrieve:**
-```
-3 validation errors for Unmarshaller
-body.prompt_config
-  Field required [type=missing, input_value={'_id': '01K...', 'prompt': {...}}]
-```
-
-**Root cause:** The SDK's typed models expect `prompt_config` in both the request and response, but the API uses `prompt`. Create is rejected; retrieve fails to parse.
-
-**Workaround:** [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) (`setup_system_prompt`) and [`src/assistant/prompts.py`](src/assistant/prompts.py) (`get_system_prompt`) both use raw HTTP.
-
-### `CreateChunkMetadata` silently strips custom fields
-
-**Symptom:** Chunks upload successfully but the metadata dict on the server only contains `page_number` — all your other fields (`filename`, `chunk_id`, `chunk_index`, etc.) disappear.
-
-**Root cause:** The SDK's `CreateChunkMetadata` Pydantic model only declares `page_number` and uses Pydantic's default behavior (strip unknown fields). Even though the API accepts arbitrary metadata, the SDK strips it before sending.
-
-**Workaround:** Chunks are uploaded via raw HTTP in [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (`_upload_chunks`).
+If every check passes but you're still seeing weird behaviour, the issues
+below are the ones that are **not** caught by `make doctor` — mostly OTEL
+wiring and `.env` parsing edge cases worth knowing about.
 
 ---
 
 ## OpenTelemetry tracing
 
+Tracing is the one subsystem `make doctor` can't fully validate — spans
+flush asynchronously and symptoms only show up in the orq.ai Studio
+Traces tab after the fact. Here are the four gotchas we hit.
+
 ### Traces appear fragmented / flat (individual LLM spans, no graph tree)
 
-**Symptom:** In orq.ai Studio → Traces you see individual `ChatOpenAI` spans but no parent `RAG Assistant` / `call_model` / `tools` hierarchy.
+**Symptom:** In orq.ai Studio → Traces you see individual `ChatOpenAI` spans but no parent `Hybrid Data Agent` / `call_model` / `tools` hierarchy.
 
 **Root cause:** The `BatchSpanProcessor` queues spans and flushes them asynchronously. In short-lived scripts (like `make evals-run`) the process exits before the queue drains, so spans are dropped or arrive without their parent context.
 
-**Fix:** Register an `atexit` handler that calls `provider.force_flush()`:
+**Fix:** Register an `atexit` handler that force-flushes on process exit. Read the provider from OTEL's own global registry rather than keeping a shadow reference — OTEL is already the source of truth:
 ```python
 import atexit
-_provider = TracerProvider()
-_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-trace.set_tracer_provider(_provider)
-atexit.register(lambda: _provider.force_flush(timeout_millis=10_000))
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+trace.set_tracer_provider(provider)
+
+def _flush_on_exit() -> None:
+    current = trace.get_tracer_provider()
+    if isinstance(current, TracerProvider):
+        current.force_flush(timeout_millis=10_000)
+
+atexit.register(_flush_on_exit)
 ```
 
 See [`src/assistant/tracing.py`](src/assistant/tracing.py).
@@ -89,7 +83,7 @@ Despite the naming, nothing is ever sent to LangSmith with this combination.
 
 **Root cause:** LangSmith's OTEL hooks register with whatever `TracerProvider` is the global default at the time langchain is first imported. If you `import langchain_core` before calling `setup_tracing()`, the hooks register against the default no-op provider and never see your real exporter.
 
-**Fix:** Always call `setup_tracing()` **before** importing anything that transitively pulls in `langchain_core`, `langsmith`, or `evaluatorq`. See the import order in [`evals/run_evaluation_pipeline.py`](evals/run_evaluation_pipeline.py):
+**Fix:** Always call `setup_tracing()` **before** importing anything that transitively pulls in `langchain_core`, `langsmith`, or `evaluatorq`. See the import order in [`evals/run_evals.py`](evals/run_evals.py):
 ```python
 load_dotenv()
 from assistant.tracing import setup_tracing  # noqa: E402
@@ -100,231 +94,10 @@ from langchain_core.messages import HumanMessage  # noqa: E402
 
 ---
 
-## Knowledge Base
-
-### Chunk upload limit is 100 per request
-
-**Symptom:**
-```
-Status 400
-{"error":"Validation error: Too big: expected array to have <=100 items"}
-```
-
-**Root cause:** The `POST /v2/knowledge/{id}/datasources/{id}/chunks` endpoint caps the request body at 100 items. The docs also mention a 5000-item bulk endpoint but that one uses a different path.
-
-**Fix:** Use a batch size of 100 in [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (`ingest_pdf_directory`, `batch_size = 100`).
-
-### Searches return 0 results right after ingestion
-
-**Symptom:** You just ran `make ingest-kb`, it reported success, but `make doctor` or a live search returns no matches.
-
-**Root cause:** orq.ai embeds chunks **asynchronously** after they're uploaded. Chunks land in `status: "pending"` and move to `status: "completed"` once the embedding job finishes (usually within a minute for small datasets).
-
-**Fix:** Wait ~1 minute after `make ingest-kb` before searching, or check chunk status in the Studio under `langgraph-demo` → Knowledge Base → datasource → chunks column.
-
-### `scores` and `metadata` missing from search response
-
-**Symptom:** `_kb_search()` returns matches but `score=0.0` and `metadata={}`.
-
-**Root cause:** By default the search endpoint returns only `id` and `text`. To get scores and metadata, you must pass `search_options`.
-
-**Fix:** Include both keys in the payload (see [`src/assistant/tools.py`](src/assistant/tools.py) `_kb_search`):
-```python
-payload = {
-    "query": query,
-    "retrieval_config": {"type": "hybrid_search", "top_k": top_k},
-    "search_options": {"include_metadata": True, "include_scores": True},
-}
-```
-
-Scores come back under `scores.search_score` and `scores.rerank_score` (not top-level `score`).
-
-### `retrieval_config` requires a `type` field
-
-**Symptom:**
-```
-3 validation errors for Unmarshaller
-body.RetrievalConfig1.type
-  Field required [type=missing, input_value={'top_k': 5}]
-```
-
-**Root cause:** The SDK's `retrieval_config` type union requires explicit `type`: one of `"vector_search"`, `"keyword_search"`, or `"hybrid_search"`.
-
-**Fix:** Always pass `{"type": "hybrid_search", "top_k": N}` (or one of the other two). See [`src/assistant/tools.py`](src/assistant/tools.py) `_kb_search`.
-
----
-
-## Evaluators
-
-### Python evaluator returning `value: null` with `output_type: "number"`
-
-**Symptom:** You created a Python evaluator via POST `/v2/evaluators` with
-`type: python_eval` and `code: "def evaluate(log): ..."`, and every invoke
-returns `{"type":"number","value":null}` regardless of what your code returns.
-
-**Root cause:** If you don't specify `output_type` on create, the API defaults
-to `"number"`. When your code returns a boolean, the server tries to coerce
-`True`/`False` to a number and silently yields `null`.
-
-**Fix:** Always set `output_type: "boolean"` (or `"number"`, or `"string"`)
-explicitly in the create payload:
-```python
-payload = {
-    "type": "python_eval",
-    "key": "...",
-    "code": "...",
-    "output_type": "boolean",  # ← required for bool-returning evaluators
-}
-```
-
-Existing evaluators can be patched: `PATCH /v2/evaluators/{id}` with
-`{"output_type": "boolean"}`.
-
-### LLM evaluator requires `mode: "single"` and other fields missing from SDK
-
-**Symptom:**
-```
-ZodError: No matching discriminator `mode`
-```
-
-**Root cause:** The `/v2/evaluators` endpoint expects `llm_eval` payloads to
-include `mode: "single"`, `model`, `prompt`, `repetitions: 1`, and optionally
-`guardrail_config`. The installed SDK's typed model doesn't require these.
-
-**Fix:** Build the payload manually via raw HTTP with all required fields.
-See [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
-`_create_llm_evaluator`.
-
-### LLM evaluator returns `value: None` with an internal error
-
-**Symptom:** During long eval runs the evaluator intermittently returns:
-```json
-{"value": {"value": null, "explanation": "Error during single evaluation execution: ..."}}
-```
-The error message typically includes "400 We could not parse the JSON body"
-from OpenAI.
-
-**Root cause:** Upstream provider errors (rate limits, transient JSON encoding
-issues in the evaluator runtime) surface as `value: None` while the evaluator
-envelope still returns HTTP 200.
-
-**Fix:** Treat `value: None` as a **fail-open** result in your scorer —
-returning an error value blocks users on transient issues. See
-[`src/assistant/guardrails.py`](src/assistant/guardrails.py) `OrqSafetyGuardrail.ainvoke`
-for the pattern: log at debug and return SAFE.
-
-### Don't use a Python regex evaluator for source-citation checking
-
-**Symptom:** A `source-citations-present` Python evaluator using
-`re.findall(r'https?://...')` reports red on every response even though the
-agent is clearly citing documents.
-
-**Root cause:** The agent cites by **document name** ("According to the
-Warranty Policy Appendix...") not URL. Regex misses this, so every response
-looks unattributed.
-
-**Fix:** Replace the Python evaluator with an **LLM judge** that understands
-attribution phrases and exempts pure refusals / clarifications. See
-[`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
-`SOURCE_CITATIONS_PROMPT` for the exact prompt, aligned with the system
-prompt's *Source Attribution* policy.
-
-General rule: **use Python evaluators for syntactic checks** (JSON validity,
-regex, length bounds) and **LLM evaluators for semantic checks** (grounding,
-attribution, tone, relevance).
-
----
-
-## Datasets
-
-### Inputs must be flat primitives
-
-**Symptom:**
-```
-Status 400
-{"error":"Validation error: Invalid input: expected array, received object"}
-```
-
-**Root cause:** Dataset `inputs` are indexed as a flat key-value map. Nested objects and arrays are rejected by the API.
-
-**Fix:** Serialize non-primitive values to JSON strings before uploading (see [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) `_load_datapoints`):
-```python
-flat_inputs = {
-    k: json.dumps(v) if isinstance(v, (list, dict)) else v
-    for k, v in inputs.items()
-}
-```
-
-On the consuming side (eval pipeline), parse them back:
-```python
-raw = data.inputs.get("expected_tools", [])
-expected_tools = json.loads(raw) if isinstance(raw, str) else raw
-```
-
-### `create_datapoint` SDK signature quirk
-
-**Symptom:**
-```
-TypeError: Datasets.create_datapoint() got an unexpected keyword argument 'request_body'
-```
-
-**Root cause:** In the installed SDK, `create_datapoint` takes **flat kwargs** (`dataset_id`, `inputs`, `messages`, `expected_output`) — not a `request_body` list. Bulk upload uses a separate method `create_datapoints` (plural) with an `items` parameter. The GitHub docs show an older signature.
-
-**Fix:** Use the bulk endpoint for multiple datapoints (see [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) `setup_dataset`) via raw HTTP against `/v2/datasets/{id}/datapoints/bulk`, or call `create_datapoint` once per datapoint via the SDK.
-
-### List endpoints are paginated — a small workspace easily overflows the default limit
-
-**Symptom:** Bootstrap script always creates a new entity even though an identically-named one already exists.
-
-**Root cause:** `/v2/datasets`, `/v2/prompts`, `/v2/knowledge` all return at most 50 items per call with cursor pagination via `starting_after`. If your workspace has more than 50 entities, your lookup never finds the match.
-
-**Fix:** Paginate until `has_more` is false (see [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) `_paginate` helper).
-
----
-
-## Dotenv file gotchas
-
-### `python-dotenv` warns about malformed lines
-
-**Symptom:**
-```
-Python-dotenv could not parse statement starting at line 11
-```
-
-**Root cause:** A non-empty line in `.env` that isn't `KEY=VALUE`, `KEY="VALUE"`, or a `#` comment. Common cause: pasting multi-line output from a script that wasn't purely env-var format.
-
-**Fix:** Open `.env`, find line 11, remove or comment it with `#`. `make doctor` catches this automatically. The bootstrap script now prints a paste-safe block where every non-env-var line is already commented.
-
----
-
-## Evaluation pipeline
-
-### `Llm end error: argument of type 'NoneType' is not iterable`
-
-**Symptom:** The `OrqLangchainCallback` prints this error in evals runs but the scores still come out correct.
-
-**Root cause:** A known bug in the installed SDK callback — `on_llm_end` iterates `response.llm_output` which can be `None` on certain LangGraph paths. The error is non-fatal, but the noise is annoying.
-
-**Fix:** We removed the callback from the compiled graph entirely and rely on OTEL for tracing instead. See [`src/assistant/graph.py`](src/assistant/graph.py) — `builder.compile(name="Hybrid Data Agent")` has no `.with_config({"callbacks": [...]})`.
-
-### `Error in LangchainTracer.on_llm_end callback: TypeError('Object of type ModelMetaclass is not JSON serializable')`
-
-**Symptom:** Same as above but from LangChain's built-in `LangchainTracer`, not our code.
-
-**Root cause:** LangChain's `LangchainTracer` (auto-activated by `LANGSMITH_TRACING=true`) tries to JSON-serialize the LLM response metadata, which includes a Pydantic model class reference. Upstream bug, non-fatal.
-
-**Fix:** Raise the log level for the noisy logger so the warning stays out of terminal output (see [`src/chainlit_app.py`](src/chainlit_app.py)):
-```python
-logging.getLogger("langchain_core.callbacks.manager").setLevel(logging.ERROR)
-```
-
----
-
 ## Getting help
 
-If you hit something not listed here:
+If `make doctor` is green but something still isn't right:
 
-1. **Run `make doctor`** first — most setup issues are caught automatically.
-2. **Check the orq.ai Studio** for the failing entity (trace, KB, dataset) — error context is usually clearer there than in logs.
-3. **Check the span tree** — if the agent misbehaves, the full LangGraph execution tree in the Traces tab will show exactly which node produced the bad output.
-4. **File an issue** on this repo describing the symptom and what `make doctor` reported.
+1. **Check the orq.ai Studio** for the failing entity (trace, KB, dataset) — error context is usually clearer there than in logs.
+2. **Check the span tree** — if the agent misbehaves, the full LangGraph execution tree in the Traces tab will show exactly which node produced the bad output.
+3. **File an issue** on this repo describing the symptom and what `make doctor` reported.

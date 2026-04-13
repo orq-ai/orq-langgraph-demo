@@ -1,0 +1,4 @@
+/* Hide the centered logo on the Chainlit welcome / empty-state screen. */
+img[alt="logo"] {
+  display: none !important;
+}

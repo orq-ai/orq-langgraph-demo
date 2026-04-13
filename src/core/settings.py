@@ -126,7 +126,7 @@ class Settings(BaseSettings):
 
     # UI Configuration
     STARTERS_CSV_PATH: Path = Field(
-        default=Path("./resources/converstation_starters.csv"),
+        default=Path("./resources/conversation_starters.csv"),
         description="Path to CSV file containing conversation starters",
         env="STARTERS_CSV_PATH",
     )

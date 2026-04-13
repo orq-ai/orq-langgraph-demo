@@ -319,40 +319,9 @@ Depends on Phase 1 completing cleanly. This is the phase where the repo becomes 
 
 ---
 
-### 4.2 — Trace-driven dataset growth
+### 4.2 — Trace-driven dataset growth ~~(dropped)~~
 
-**Why:** The strongest orq.ai value prop for teams is "production traces feed back into your eval dataset." Today we don't demonstrate this loop at all — the 15 eval cases are static. Adding a script that grows the dataset from real traces teaches the most orq.ai-native workflow.
-
-**Files to create:**
-- `scripts/grow_eval_dataset.py` — queries orq.ai traces, filters for interesting ones, converts to datapoints, appends to JSONL
-- `docs/eval-dataset-growth.md` — explains the loop and when to run it
-
-**Files to modify:**
-- `Makefile` — add `evals-grow-from-traces` target
-- `EVALS.md` — new section "Growing the dataset from production traces"
-
-**Script design:**
-1. Query orq.ai traces API for recent traces in the `langgraph-demo` project
-2. Filter: only user-initiated queries, exclude failures, exclude already-seen queries (by hash)
-3. For each trace:
-   - Extract the user question from the first human message
-   - Extract the tool calls from the trace spans
-   - Construct a datapoint: `{inputs: {question, expected_tools}, outputs: {...}}`
-   - Infer `category` from which tools were called (sql_only / document_only / mixed)
-4. Append new datapoints to `evals/datasets/tool_calling_evals.jsonl`
-5. Print a summary: "Added N new datapoints from traces M through P"
-
-**Safety:**
-- Dry-run by default, `--apply` to actually write the file
-- Never overwrite existing datapoints
-- De-dupe by input hash so running twice is idempotent
-
-**Verification:**
-- Run the app manually for ~5 queries to generate traces
-- `make evals-grow-from-traces` (dry-run) reports 5 candidate datapoints
-- `make evals-grow-from-traces --apply` adds them to the JSONL
-- Re-running the command shows 0 new (de-duped)
-- `make evals-run` runs against the grown dataset without errors
+**Status: removed.** Attempted via a `scripts/grow_eval_dataset.py` + `make evals-grow-from-traces` target. The public orq.ai REST API does not expose a trace-listing endpoint (`/v2/traces` returns 404 on both `api.orq.ai` and `my.orq.ai`), and the MCP tool `mcp__orq__list_traces` that works in Claude Code talks to a JSON-RPC transport that a standalone Make target can't reach. Without a clean one-command flow this feature reduces to a clunky manual export dance that nobody would actually run — so we deleted the script, doc, and make target rather than ship a two-step stub. Revisit if/when `/v2/traces` is exposed publicly.
 
 ---
 
@@ -383,17 +352,15 @@ Each phase ends in a shippable commit. Phase 1 alone is already a meaningful imp
 - `docs/comparing-approaches.md` (4.1)
 - `src/orq_agent.py` (4.1)
 - `src/chainlit_app_orq.py` (4.1)
-- `scripts/grow_eval_dataset.py` (4.2)
-- `docs/eval-dataset-growth.md` (4.2)
 
 **Modified files (touched by multiple phases):**
 - `README.md` — 1.1, 2.2, 2.3, 3.2, 4.1
-- `Makefile` — 1.2, 2.1, 3.2, 4.1, 4.2
+- `Makefile` — 1.2, 2.1, 3.2, 4.1
 - `scripts/setup_orq_workspace.py` — 2.1, 3.2, 4.1
 - `src/assistant/utils.py` — 1.4
 - `src/assistant/guardrails.py` — 3.2
 - `ARCHITECTURE.md` — 3.2, 4.1
-- `EVALS.md` — 2.1, 4.2
+- `EVALS.md` — 2.1
 - `.env.example` — 2.2
 - `plans/manage-prompts-on-orq.md` — 2.1 (mark Phase B complete)
 
@@ -405,7 +372,7 @@ After everything is merged, the repo should pass this smell test:
 
 1. **A newcomer lands on the README** — within 30 seconds they understand: this is a LangGraph + orq.ai reference. They see the feature table, the tour GIF, and the KB/traces screenshots.
 2. **They clone it** — `make setup-workspace && make ingest-data && make doctor && make run` works on the first try. Any failure has a clear remediation from `make doctor`.
-3. **They try the fancy stuff** — `make evals-compare-prompts` shows two prompt variants side by side, `make run-orq-agent` shows the alternative approach, `make evals-grow-from-traces` shows the production loop.
+3. **They try the fancy stuff** — `make evals-compare-prompts` shows two prompt variants side by side, `make run-orq-agent` shows the alternative approach.
 4. **They open a PR** — CI runs lint, tests, and evals. If tool-accuracy drops, the PR turns red automatically.
 5. **They swap models** — change `DEFAULT_MODEL` in `.env`, restart — it works with Claude/Groq/Gemini with zero code changes.
 6. **They inspect a trace** — they see the full graph tree, the safety guardrail using an orq.ai evaluator (not OpenAI moderation), and can drill into costs per span.
