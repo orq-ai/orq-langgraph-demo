@@ -25,8 +25,8 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
-import httpx
 from dotenv import load_dotenv
+import httpx
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
@@ -260,6 +260,7 @@ class OrqPDFIngestionPipeline:
         Uses raw HTTP because the SDK's typed CreateChunkMetadata silently
         strips extra fields — we need to preserve all our custom metadata.
         """
+
         # orq.ai metadata values must be primitive (string, number, bool).
         # Flatten non-primitives to strings.
         def flatten_value(v: Any) -> Any:
@@ -325,11 +326,11 @@ class OrqPDFIngestionPipeline:
                     knowledge_id=self.knowledge_base_id,
                     display_name=filename,
                 )
-                datasource_id = getattr(datasource, "id", None) or getattr(
-                    datasource, "_id", None
-                )
+                datasource_id = getattr(datasource, "id", None) or getattr(datasource, "_id", None)
                 if not datasource_id:
-                    raise RuntimeError(f"Could not extract datasource ID from response: {datasource}")
+                    raise RuntimeError(
+                        f"Could not extract datasource ID from response: {datasource}"
+                    )
 
                 logger.info(f"Created datasource '{filename}' ({datasource_id})")
             except Exception as e:
@@ -338,21 +339,32 @@ class OrqPDFIngestionPipeline:
                 stats["error_message"] = f"datasource creation failed: {e}"
                 continue
 
-            # Upload chunks in batches (orq.ai API limit: 100 chunks per request)
+            # Upload chunks in batches (orq.ai API limit: 100 chunks per request).
+            # A progress bar keeps the long ingestion of large PDFs legible.
+            from tqdm import tqdm  # noqa: PLC0415
+
             batch_size = 100
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i : i + batch_size]
-                try:
-                    self._upload_chunks(datasource_id, batch)
-                    total_chunks_uploaded += len(batch)
-                    logger.info(
-                        f"Uploaded batch {i // batch_size + 1} ({len(batch)} chunks) for {filename}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to upload batch for {filename}: {e}")
-                    stats["status"] = "error"
-                    stats["error_message"] = f"chunk upload failed: {e}"
-                    break
+            batches = [chunks[i : i + batch_size] for i in range(0, len(chunks), batch_size)]
+            upload_errored = False
+            with tqdm(
+                total=len(chunks),
+                desc=f"  {filename}",
+                unit="chunk",
+                leave=False,
+            ) as pbar:
+                for batch in batches:
+                    try:
+                        self._upload_chunks(datasource_id, batch)
+                        total_chunks_uploaded += len(batch)
+                        pbar.update(len(batch))
+                    except Exception as e:
+                        logger.error(f"Failed to upload batch for {filename}: {e}")
+                        stats["status"] = "error"
+                        stats["error_message"] = f"chunk upload failed: {e}"
+                        upload_errored = True
+                        break
+            if upload_errored:
+                continue
 
         successful_files = [r for r in processing_results if r["status"] == "success"]
         failed_files = [r for r in processing_results if r["status"] == "error"]

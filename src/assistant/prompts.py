@@ -6,10 +6,10 @@ unreachable or `ORQ_SYSTEM_PROMPT_ID` is not configured. When configured,
 Studio so prompts can be iterated on without code changes.
 """
 
+from functools import lru_cache
 import logging
 import os
 import re
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ def fetch_prompt_by_id(prompt_id: str) -> str:
     body = response.json()
     text = _extract_system_message(body)
     text = _convert_template_braces(text)
-    logger.info(f"Fetched prompt from orq.ai (id={prompt_id}, {len(text)} chars)")
+    logger.debug(f"Fetched prompt from orq.ai (id={prompt_id}, {len(text)} chars)")
     return text
 
 
@@ -218,7 +218,5 @@ def get_system_prompt() -> str:
     try:
         return fetch_prompt_by_id(settings.ORQ_SYSTEM_PROMPT_ID)
     except Exception as e:
-        logger.warning(
-            f"Failed to fetch system prompt from orq.ai, using local fallback: {e}"
-        )
+        logger.warning(f"Failed to fetch system prompt from orq.ai, using local fallback: {e}")
         return SYSTEM_PROMPT

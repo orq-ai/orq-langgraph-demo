@@ -13,29 +13,32 @@ Run with:
     # or
     uv run chainlit run src/chainlit_app_orq.py
 
-See `docs/comparing-approaches.md` for the side-by-side comparison.
+See `comparing-approaches.md` for the side-by-side comparison.
 """
 
 import logging
-from pathlib import Path
 
 from assistant.tracing import setup_tracing
 
 setup_tracing()
 
-import chainlit as cl
+import chainlit as cl  # noqa: E402
 
-from assistant.utils import load_starters_from_csv
-from core.settings import settings
-from orq_agent import invoke_managed_agent
+from assistant.utils import load_starters_from_csv  # noqa: E402
+from core.settings import settings  # noqa: E402
+from orq_agent import invoke_managed_agent  # noqa: E402
 
-# Set up logging
+# Noisy third-party loggers are quieted centrally by setup_tracing() in
+# assistant/tracing.py so every entry point inherits the same clean defaults.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("openai").setLevel(logging.WARNING)
-logging.getLogger("langchain_core.callbacks.manager").setLevel(logging.ERROR)
+
+# Ready banner — see chainlit_app.py for rationale.
+print("\n" + "─" * 60)
+print("  Hybrid Data Agent — managed orq.ai Agent flow")
+print("  Ready → http://localhost:8000")
+print("─" * 60 + "\n")
 
 
 @cl.set_starters

@@ -11,23 +11,20 @@ Usage:
 """
 
 import os
+from pathlib import Path
 import sqlite3
 import sys
-from pathlib import Path
 from typing import List, Optional, Tuple
 
-import httpx
 from dotenv import load_dotenv
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent))  # for `_term`
 
 load_dotenv()
 
-GREEN = "\033[32m"
-RED = "\033[31m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
-BOLD = "\033[1m"
+from _term import arrow, bold, fail, ok, section, warn  # noqa: E402
 
 API_BASE = "https://api.orq.ai/v2"
 
@@ -36,31 +33,11 @@ class CheckFailed(Exception):
     """Raised when a check fails. The message is the remediation hint."""
 
 
-def _ok(msg: str) -> None:
-    print(f"{GREEN}✓{RESET} {msg}")
-
-
-def _fail(msg: str, hint: str = "") -> None:
-    print(f"{RED}✗{RESET} {msg}")
-    if hint:
-        print(f"  {YELLOW}→{RESET} {hint}")
-
-
-def _warn(msg: str, hint: str = "") -> None:
-    print(f"{YELLOW}!{RESET} {msg}")
-    if hint:
-        print(f"  {YELLOW}→{RESET} {hint}")
-
-
-def _section(title: str) -> None:
-    print(f"\n{BOLD}{title}{RESET}")
-
-
 def check_env_file() -> bool:
     """Check that .env exists and contains no malformed lines."""
     env_path = Path(".env")
     if not env_path.exists():
-        _fail(".env file not found", "run `cp .env.example .env` and fill in your keys")
+        fail(".env file not found", "run `cp .env.example .env` and fill in your keys")
         return False
 
     malformed_lines: List[Tuple[int, str]] = []
@@ -74,13 +51,13 @@ def check_env_file() -> bool:
                 malformed_lines.append((line_num, stripped[:60]))
 
     if malformed_lines:
-        _fail(f".env has {len(malformed_lines)} malformed line(s)")
+        fail(f".env has {len(malformed_lines)} malformed line(s)")
         for line_num, content in malformed_lines[:3]:
             print(f"    line {line_num}: {content!r}")
-        print(f"  {YELLOW}→{RESET} remove or prefix with `#` to comment out")
+        print(f"  {arrow()} remove or prefix with `#` to comment out")
         return False
 
-    _ok(".env parses cleanly")
+    ok(".env parses cleanly")
     return True
 
 
@@ -88,10 +65,10 @@ def check_openai_key() -> bool:
     """Check OPENAI_API_KEY is set and can reach the API."""
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
-        _fail("OPENAI_API_KEY not set", "add OPENAI_API_KEY=sk-... to .env")
+        fail("OPENAI_API_KEY not set", "add OPENAI_API_KEY=sk-... to .env")
         return False
     if not key.startswith("sk-"):
-        _warn("OPENAI_API_KEY format looks unusual (expected 'sk-...')")
+        warn("OPENAI_API_KEY format looks unusual (expected 'sk-...')")
 
     try:
         r = httpx.get(
@@ -100,13 +77,13 @@ def check_openai_key() -> bool:
             timeout=10.0,
         )
         if r.status_code == 401:
-            _fail("OPENAI_API_KEY is set but rejected by api.openai.com")
+            fail("OPENAI_API_KEY is set but rejected by api.openai.com")
             return False
         r.raise_for_status()
-        _ok("OPENAI_API_KEY set and valid")
+        ok("OPENAI_API_KEY set and valid")
         return True
     except Exception as e:
-        _fail(f"OPENAI_API_KEY check failed: {e}")
+        fail(f"OPENAI_API_KEY check failed: {e}")
         return False
 
 
@@ -114,7 +91,7 @@ def check_orq_key() -> Optional[str]:
     """Check ORQ_API_KEY is set and can reach orq.ai. Returns the key on success."""
     key = os.environ.get("ORQ_API_KEY")
     if not key:
-        _fail("ORQ_API_KEY not set", "add ORQ_API_KEY=... to .env")
+        fail("ORQ_API_KEY not set", "add ORQ_API_KEY=... to .env")
         return None
 
     try:
@@ -124,13 +101,13 @@ def check_orq_key() -> Optional[str]:
             timeout=10.0,
         )
         if r.status_code == 401:
-            _fail("ORQ_API_KEY is set but rejected by api.orq.ai")
+            fail("ORQ_API_KEY is set but rejected by api.orq.ai")
             return None
         r.raise_for_status()
-        _ok("ORQ_API_KEY set and valid")
+        ok("ORQ_API_KEY set and valid")
         return key
     except Exception as e:
-        _fail(f"ORQ_API_KEY check failed: {e}")
+        fail(f"ORQ_API_KEY check failed: {e}")
         return None
 
 
@@ -138,7 +115,7 @@ def check_orq_project(api_key: str) -> bool:
     """Check ORQ_PROJECT_NAME exists on orq.ai."""
     name = os.environ.get("ORQ_PROJECT_NAME")
     if not name:
-        _fail("ORQ_PROJECT_NAME not set", "add ORQ_PROJECT_NAME=langgraph-demo to .env")
+        fail("ORQ_PROJECT_NAME not set", "add ORQ_PROJECT_NAME=langgraph-demo to .env")
         return False
 
     try:
@@ -150,15 +127,15 @@ def check_orq_project(api_key: str) -> bool:
         r.raise_for_status()
         projects = r.json()
         if any(p.get("name") == name or p.get("key") == name for p in projects):
-            _ok(f"Project '{name}' exists on orq.ai")
+            ok(f"Project '{name}' exists on orq.ai")
             return True
-        _fail(
+        fail(
             f"Project '{name}' not found in workspace",
             "run `make setup-workspace` to create it",
         )
         return False
     except Exception as e:
-        _fail(f"project check failed: {e}")
+        fail(f"project check failed: {e}")
         return False
 
 
@@ -166,7 +143,7 @@ def check_knowledge_base(api_key: str) -> bool:
     """Check ORQ_KNOWLEDGE_BASE_ID exists and has completed chunks."""
     kb_id = os.environ.get("ORQ_KNOWLEDGE_BASE_ID")
     if not kb_id:
-        _fail(
+        fail(
             "ORQ_KNOWLEDGE_BASE_ID not set",
             "run `make setup-workspace`, then paste the printed ID into .env",
         )
@@ -179,14 +156,14 @@ def check_knowledge_base(api_key: str) -> bool:
             timeout=10.0,
         )
         if r.status_code == 404:
-            _fail(
+            fail(
                 f"Knowledge Base {kb_id} not found",
                 "run `make setup-workspace` to create one and update .env",
             )
             return False
         r.raise_for_status()
     except Exception as e:
-        _fail(f"KB check failed: {e}")
+        fail(f"KB check failed: {e}")
         return False
 
     # List datasources and count chunks
@@ -199,17 +176,17 @@ def check_knowledge_base(api_key: str) -> bool:
         r.raise_for_status()
         datasources = r.json().get("data", [])
     except Exception as e:
-        _fail(f"KB datasource check failed: {e}")
+        fail(f"KB datasource check failed: {e}")
         return False
 
     if not datasources:
-        _fail(
+        fail(
             f"Knowledge Base {kb_id} has no datasources",
             "run `make ingest-kb` to upload the PDFs",
         )
         return False
 
-    _ok(f"Knowledge Base has {len(datasources)} datasource(s)")
+    ok(f"Knowledge Base has {len(datasources)} datasource(s)")
     return True
 
 
@@ -217,7 +194,7 @@ def check_system_prompt(api_key: str) -> bool:
     """Check ORQ_SYSTEM_PROMPT_ID fetches successfully."""
     prompt_id = os.environ.get("ORQ_SYSTEM_PROMPT_ID")
     if not prompt_id:
-        _warn(
+        warn(
             "ORQ_SYSTEM_PROMPT_ID not set",
             "the app will use the local hardcoded fallback from src/assistant/prompts.py",
         )
@@ -230,7 +207,7 @@ def check_system_prompt(api_key: str) -> bool:
             timeout=10.0,
         )
         if r.status_code == 404:
-            _fail(
+            fail(
                 f"System prompt {prompt_id} not found",
                 "run `make setup-workspace` and paste the new ID into .env",
             )
@@ -239,13 +216,13 @@ def check_system_prompt(api_key: str) -> bool:
         body = r.json()
         messages = (body.get("prompt") or {}).get("messages") or []
         if not messages:
-            _fail(f"System prompt {prompt_id} has no messages")
+            fail(f"System prompt {prompt_id} has no messages")
             return False
         content = messages[0].get("content", "")
-        _ok(f"System prompt fetched ({len(content) if isinstance(content, str) else '?'} chars)")
+        ok(f"System prompt fetched ({len(content) if isinstance(content, str) else '?'} chars)")
         return True
     except Exception as e:
-        _fail(f"system prompt check failed: {e}")
+        fail(f"system prompt check failed: {e}")
         return False
 
 
@@ -254,12 +231,13 @@ def check_sqlite() -> bool:
     # Read path from settings (deferred import so earlier failures don't block)
     try:
         from core.settings import settings  # noqa
+
         db_path = settings.DEFAULT_SQLITE_PATH
     except Exception:
         db_path = Path("toyota_sales.db")
 
     if not Path(db_path).exists():
-        _fail(
+        fail(
             f"SQLite database not found at {db_path}",
             "run `make ingest-sql` to create it",
         )
@@ -271,17 +249,17 @@ def check_sqlite() -> bool:
         count = cur.fetchone()[0]
         conn.close()
     except Exception as e:
-        _fail(f"SQLite query failed: {e}")
+        fail(f"SQLite query failed: {e}")
         return False
 
     if count == 0:
-        _fail(
+        fail(
             "SQLite database is empty (fact_sales has 0 rows)",
             "run `make ingest-sql`",
         )
         return False
 
-    _ok(f"SQLite database has {count:,} rows in fact_sales")
+    ok(f"SQLite database has {count:,} rows in fact_sales")
     return True
 
 
@@ -308,17 +286,17 @@ def check_kb_search(api_key: str) -> bool:
         r.raise_for_status()
         matches = r.json().get("matches", [])
     except Exception as e:
-        _fail(f"KB search failed: {e}")
+        fail(f"KB search failed: {e}")
         return False
 
     if not matches:
-        _fail(
+        fail(
             "KB search returned 0 results for 'Toyota warranty'",
             "chunks may still be embedding — wait ~1 minute or re-run ingest-kb",
         )
         return False
 
-    _ok(f"KB search returned {len(matches)} result(s) for a test query")
+    ok(f"KB search returned {len(matches)} result(s) for a test query")
     return True
 
 
@@ -326,10 +304,11 @@ def check_evaluatorq() -> bool:
     """Check if evaluatorq is installed (soft — only needed for eval pipeline)."""
     try:
         import evaluatorq  # noqa
-        _ok("evaluatorq installed (eval pipeline ready)")
+
+        ok("evaluatorq installed (eval pipeline ready)")
         return True
     except ImportError:
-        _warn(
+        warn(
             "evaluatorq not installed",
             "run `uv sync --group eval` if you want to run the eval pipeline",
         )
@@ -337,7 +316,7 @@ def check_evaluatorq() -> bool:
 
 
 def main() -> int:
-    print(f"{BOLD}Running diagnostic checks...{RESET}")
+    print(bold("Running diagnostic checks..."))
 
     passed = 0
     failed = 0
@@ -350,10 +329,10 @@ def main() -> int:
             else:
                 failed += 1
         except Exception as e:
-            _fail(f"{check_fn.__name__} raised {type(e).__name__}: {e}")
+            fail(f"{check_fn.__name__} raised {type(e).__name__}: {e}")
             failed += 1
 
-    _section("Environment")
+    section("Environment")
     run(check_env_file)
     run(check_openai_key)
     api_key = check_orq_key()
@@ -363,29 +342,33 @@ def main() -> int:
         failed += 1
 
     if api_key:
-        _section("orq.ai workspace")
+        section("orq.ai workspace")
         run(check_orq_project, api_key)
         run(check_knowledge_base, api_key)
         run(check_system_prompt, api_key)
         run(check_kb_search, api_key)
 
-    _section("Local data")
+    section("Local data")
     run(check_sqlite)
 
-    _section("Dev dependencies")
+    section("Dev dependencies")
     run(check_evaluatorq)
 
     print()
     total = passed + failed
     if failed == 0:
-        print(f"{GREEN}{BOLD}All {total} checks passed ✓{RESET}")
-        print(f"\nYou're ready to go. Try:")
-        print(f"  make run          # start the Chainlit UI")
-        print(f"  make evals-run    # run the evaluation pipeline")
+        from _term import green  # noqa: PLC0415
+
+        print(bold(green(f"All {total} checks passed ✓")))
+        print("\nYou're ready to go. Try:")
+        print("  make run          # start the Chainlit UI")
+        print("  make evals-run    # run the evaluation pipeline")
         return 0
     else:
-        print(f"{RED}{BOLD}{failed} of {total} checks failed ✗{RESET}")
-        print(f"\nFix the issues above and re-run `make doctor`.")
+        from _term import red  # noqa: PLC0415
+
+        print(bold(red(f"{failed} of {total} checks failed ✗")))
+        print("\nFix the issues above and re-run `make doctor`.")
         return 1
 
 
