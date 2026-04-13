@@ -31,6 +31,12 @@ wiring and `.env` parsing edge cases worth knowing about.
 
 ## OpenTelemetry tracing
 
+> **Applies only when `ORQ_TRACING_BACKEND="otel"`.** The default backend
+> (`callback`) uses `orq_ai_sdk.langchain`'s callback handler instead and is
+> not affected by any of the gotchas below. See
+> [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for how the two
+> backends compare.
+
 Tracing is the one subsystem `make doctor` can't fully validate — spans
 flush asynchronously and symptoms only show up in the orq.ai Studio
 Traces tab after the fact. Here are the four gotchas we hit.

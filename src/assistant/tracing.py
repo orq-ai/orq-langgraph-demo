@@ -1,19 +1,28 @@
-"""Orq.ai tracing configuration for LangGraph observability.
+"""Tracing dispatcher for the Hybrid Data Agent.
 
-Uses OpenTelemetry (OTEL) to capture LangGraph traces and auto-register assets
-(agents, tools, models) in the orq.ai Control Tower. Also quiets a handful of
-noisy third-party loggers so terminal output stays readable across every
-entry point (Chainlit, evals, bootstrap, doctor).
+Routes LangGraph spans to one of two orq.ai integrations based on the
+``ORQ_TRACING_BACKEND`` setting:
+
+- ``callback`` (default) — registers ``orq_ai_sdk.langchain``'s callback
+  handler, which auto-traces every LangChain Runnable. See
+  ``tracing_callback.py``.
+- ``otel`` — bridges LangSmith → OTLP → orq.ai's OTEL endpoint via the
+  OpenTelemetry SDK. See ``tracing_otel.py``.
+- ``none`` — no tracing; only quiets noisy third-party loggers so terminal
+  output stays readable.
+
+Both backends are ship as educational reference. ``LANGGRAPH-INTEGRATION.md``
+at the repo root walks through the tradeoffs.
+
+The public entry point is ``setup_tracing()``. Every entry point in the repo
+(Chainlit apps, eval pipeline) calls it at module top — keep that pattern, as
+the OTEL backend's env-var stomp must precede any ``langchain`` import.
 """
 
-import atexit
 import logging
 import os
 
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from core.settings import settings
 
 # Third-party loggers that default to INFO and flood the terminal with one
 # line per HTTP call or one warning per LangChain callback. Quieted centrally
@@ -28,45 +37,38 @@ _NOISY_LOGGERS = {
 }
 
 
-def setup_tracing() -> None:
-    """Configure OpenTelemetry + quiet noisy third-party loggers.
+def quiet_noisy_loggers() -> None:
+    """Bump noisy third-party loggers down to WARNING/ERROR.
 
-    Idempotent: safe to call from every entry point. The OTEL setup uses
-    the global `TracerProvider` as its source of truth so a second call
-    becomes a no-op.
+    Run unconditionally, even on the second call — another module may have
+    bumped them back to INFO after us.
     """
-    # Quiet noisy loggers unconditionally — even on the second call, in
-    # case another module bumped them back to INFO after us.
     for name, level in _NOISY_LOGGERS.items():
         logging.getLogger(name).setLevel(level)
 
-    # OTEL is the source of truth. Before set_tracer_provider() is called,
-    # get_tracer_provider() returns a ProxyTracerProvider — not a real
-    # SDK TracerProvider — so this isinstance check cleanly detects
-    # whether setup has already run.
-    if isinstance(trace.get_tracer_provider(), TracerProvider):
-        return
 
-    os.environ["LANGSMITH_OTEL_ENABLED"] = "true"
-    os.environ["LANGSMITH_TRACING"] = "true"
-    os.environ["LANGSMITH_OTEL_ONLY"] = "true"
-    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://api.orq.ai/v2/otel"
-    os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Bearer {os.getenv('ORQ_API_KEY')}"
-    # Prevent evaluatorq from registering its own TracerProvider — OTEL allows
-    # only one global provider, and ours is the one LangGraph spans flow through.
-    os.environ["ORQ_DISABLE_TRACING"] = "1"
+def setup_tracing() -> None:
+    """Configure tracing per ``settings.ORQ_TRACING_BACKEND``.
 
-    provider = TracerProvider()
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
+    Idempotent — each backend self-checks and short-circuits on re-entry.
+    Safe to call from every entry point. The settings field is a ``Literal``
+    so pydantic rejects bad backend values at process start; no defensive
+    branching needed here.
+    """
+    quiet_noisy_loggers()
 
-    # Flush pending spans on process exit so short-lived scripts
-    # (like the eval pipeline) don't lose trace data.
-    atexit.register(_flush_on_exit)
+    # evaluatorq registers its own TracerProvider on import. Disable it
+    # regardless of which backend we picked so eval runs never get
+    # double-traced. Use setdefault so an explicit user override wins.
+    os.environ.setdefault("ORQ_DISABLE_TRACING", "1")
 
+    backend = settings.ORQ_TRACING_BACKEND
+    if backend == "callback":
+        from .tracing_callback import setup_callback_tracing
 
-def _flush_on_exit() -> None:
-    """Force-flush pending OTEL spans to orq.ai on process exit."""
-    provider = trace.get_tracer_provider()
-    if isinstance(provider, TracerProvider):
-        provider.force_flush(timeout_millis=10_000)
+        setup_callback_tracing()
+    elif backend == "otel":
+        from .tracing_otel import setup_otel_tracing
+
+        setup_otel_tracing()
+    # backend == "none" → only the logger-quieting above runs.

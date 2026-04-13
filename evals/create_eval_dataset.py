@@ -73,9 +73,9 @@ def main():
             )
 
         print(f"Uploading {len(items)} datapoints...")
-        client.datasets.create_datapoints(
+        client.datasets.create_datapoint(
             dataset_id=dataset_id,
-            items=items,
+            request_body=items,
         )
 
         print(f"Success! Dataset ID: {dataset_id}")

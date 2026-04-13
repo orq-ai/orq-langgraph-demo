@@ -24,7 +24,7 @@ Available PDFs: Menu Book, Refund & SLA Policy, Food Safety & Hygiene Policy, Al
 - **orq.ai AI Router** for all LLM calls — cost tracking, fallbacks, multi-provider access via one endpoint
 - **orq.ai Knowledge Base** — managed chunking, embeddings, and hybrid search
 - **orq.ai Prompts** — versioned system prompts, A/B-testable against the eval dataset
-- **orq.ai Traces** — full LangGraph execution tree via OpenTelemetry, with cost + latency per node
+- **orq.ai Traces** — full LangGraph execution tree (callback handler by default, OpenTelemetry exporter optional), with cost + latency per node
 - **Whitelisted SQL tools** — the agent picks from a fixed set of parameterized query types; no free-form SQL
 
 ### Security posture

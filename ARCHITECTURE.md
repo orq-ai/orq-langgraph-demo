@@ -146,27 +146,60 @@ sequenceDiagram
     Note over Graph,Router: Every step emits an OTEL span<br/>to orq.ai Traces
 ```
 
-## Architecture Trade-offs Analysis
+## Architecture Trade-offs
 
-### **Latency**
+> **Note:** This repository is intended as a reference and educational example, not a strict production deployment.
 
-**Current Approach:**
 
-- **Sequential Processing**: Safety > Router > Model > Tools > Response
-- **Streaming**: Real-time token streaming to UI
-- **Quality vs Speed Trade-off**: The current system implementation is more focused on quality of the answer and safety than speed
+## Observability
 
-**Targets and Key Performance Metric:**
+All LangGraph executions are traced to the orq.ai Studio. Two backends are
+shipped side by side: the `orq_ai_sdk.langchain` callback handler (default)
+and an OpenTelemetry exporter (alternative). Switch with `ORQ_TRACING_BACKEND`
+in `.env`; see [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the
+tradeoffs and [`src/assistant/tracing.py`](src/assistant/tracing.py) for the
+dispatcher. The Control Tower auto-registers agents, tools, and models from
+the spans, and every trace captures the full graph tree — nodes, LLM calls,
+tool executions, and Knowledge Base retrievals — with token usage and cost
+per step.
 
-- **First-Token-Latency**: ~1 second to start streaming response
-- **Total Response Time**: ~1.5-4.5s per interaction
-- **Design Philosophy**: *"First make it run, make it better and make it faster"*
+The project dashboard and trace tree views are shown in
+[README.md#observability](README.md#observability). Two additional views are
+useful for deeper analysis:
 
-**Latency Breakdown:**
-- Safety check: ~100-200ms
-- Query classification: ~300-500ms
-- Tool execution: ~100-400ms
-- Response generation: ~1-5s (streaming depending on the size of the answer)
+### Timeline view
+
+View execution as a timeline to spot bottlenecks and measure step durations.
+
+![Trace timeline view](media/trace_timeline_food_demo.png)
+
+### Thread view
+
+Follow the conversation as a message thread to review how the agent reasoned
+through the problem.
+
+![Trace thread view](media/trace_thread_food_demo.png)
+
+
+## Evaluation & Testing
+
+### **orq.ai Evaluation (evaluatorq)**
+
+- **Dataset Management**: Ground truth dataset with 15 test questions covering SQL-only, document-only, and mixed scenarios
+- **Categories Tested**:
+  - SQL-only (5 questions): Top dishes, dish performance, cuisine analysis, top cities, monthly cuisine trends
+  - Document-only (5 questions): Refund policy, allergen info, driver protocol, food safety temperature bands, escalation flow
+  - Mixed (5 questions): Combined SQL + document responses (e.g. "Margherita sales + allergens", "Top dishes + menu ingredients")
+- **Scorers** (four dimensions, run per row via [`evals/run_evals.py`](evals/run_evals.py)):
+  - `tool-accuracy` — local Python scorer, True iff every expected tool was called
+  - `source-citations` — orq.ai LLM judge, True iff factual claims are attributed to a source or the response is a pure refusal/clarification
+  - `response-grounding` — orq.ai LLM judge, True iff every claim is supported by the retrieved context (KB chunks AND SQL tool output)
+  - `hallucination-check` — orq.ai LLM judge, True iff no claim contradicts the retrievals
+- **A/B experiment**: `make evals-compare-prompts` runs the same dataset against two system-prompt variants (managed in orq.ai Prompts) and syncs the comparison to the Studio as a single experiment with the variants side-by-side.
+
+- **See details** at [Evals](EVALS.md).
+
+
 
 ### Security Architecture Decisions and its layers
 
@@ -220,34 +253,6 @@ sequenceDiagram
 - **Current**: By default Chainlit serves the files under the public directory as static files. Good for a prototype but not for production environment.
 - **Recommendation**: Ideally this would be served with something like blob storage or S3 bucket with proper access control and permissions.
 
-## Observability
-
-All LangGraph executions are traced to the orq.ai Studio via OpenTelemetry
-(see [`src/assistant/tracing.py`](src/assistant/tracing.py)). The Control
-Tower auto-registers agents, tools, and models from the spans, and every
-trace captures the full graph tree — nodes, LLM calls, tool executions, and
-Knowledge Base retrievals — with token usage and cost per step.
-
-The trace, timeline, and thread views are shown in [README.md#observability](README.md#observability).
-
-## Evaluation & Testing
-
-### **orq.ai Evaluation (evaluatorq)**
-
-- **Dataset Management**: Ground truth dataset with 15 test questions covering SQL-only, document-only, and mixed scenarios
-- **Categories Tested**:
-  - SQL-only (5 questions): Top dishes, dish performance, cuisine analysis, top cities, monthly cuisine trends
-  - Document-only (5 questions): Refund policy, allergen info, driver protocol, food safety temperature bands, escalation flow
-  - Mixed (5 questions): Combined SQL + document responses (e.g. "Margherita sales + allergens", "Top dishes + menu ingredients")
-- **Scorers** (four dimensions, run per row via [`evals/run_evals.py`](evals/run_evals.py)):
-  - `tool-accuracy` — local Python scorer, True iff every expected tool was called
-  - `source-citations` — orq.ai LLM judge, True iff factual claims are attributed to a source or the response is a pure refusal/clarification
-  - `response-grounding` — orq.ai LLM judge, True iff every claim is supported by the retrieved context (KB chunks AND SQL tool output)
-  - `hallucination-check` — orq.ai LLM judge, True iff no claim contradicts the retrievals
-- **A/B experiment**: `make evals-compare-prompts` runs the same dataset against two system-prompt variants (managed in orq.ai Prompts) and syncs the comparison to the Studio as a single experiment with the variants side-by-side.
-
-- **See details** at [Evals](EVALS.md).
-
 ## Other considerations
 
 ### Cost Optimization
@@ -261,15 +266,6 @@ The trace, timeline, and thread views are shown in [README.md#observability](REA
 ### Document Relevancy and Performance
 
 - **Current Approach**: Due to latency and for the sake of simplicity we are showing them [all retrieved documents] here to demonstrate the feature
-- **Production Enhancement**: Ideally we would have a relevancy assessment or reranker and filter out those documents that are not relevant
-- **Trade-off**: Showing all retrieved documents vs. implementing reranking (adds latency but improves precision)
+- **Next immprovement step**: Ideally we would have a relevancy assessment or reranker and filter out those documents that are not relevant
 
 ----
-
-**Quality versus Latency Trade-off**:
-
-The current system implementation is more focused on quality of the answer and safety than speed. I consider that the KPI First-Token-Latency is around 1s, meaing it takes 1 second to start streaming the answer to the user. The trade-off is good ideal for customer iterations and improvements based on actual real usage. Following the principle: First make it run, make it better and make it faster.
-
-
-----
-Author: Arian Pasquali
