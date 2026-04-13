@@ -89,19 +89,19 @@ evals/
 ```json
 {
   "metadata": {
-    "id": "sql_001",
+    "id": "sql_002",
     "category": "sql_only",
-    "expected_tools": ["get_sales_by_model"]
+    "expected_tools": ["get_orders_by_dish"]
   },
   "inputs": {
     "category": "sql_only",
-    "question": "Show me RAV4 sales in Germany for 2024",
-    "expected_tools": ["get_sales_by_model"]
+    "question": "Show me Margherita Pizza orders in Berlin for 2024.",
+    "expected_tools": ["get_orders_by_dish"]
   },
   "outputs": {
-    "response": "Based on our sales data, here's how RAV4 performed...",
-    "tools_called": ["get_sales_by_model"],
-    "execution_status": "success"
+    "expected_tools": ["get_orders_by_dish"],
+    "category": "sql_only",
+    "notes": "Should dispatch get_orders_by_dish with dish_name='Margherita Pizza', city='Berlin', year=2024."
   }
 }
 ```
@@ -192,8 +192,6 @@ make evals-compare-prompts
 The single-variant case (`make evals-run` → `--variants A`) is the same
 code path with a one-element variants list — no separate script.
 
-![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
-
 **To iterate on a variant:** open the prompt in the orq.ai Studio
 (`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), edit,
 click Publish, and re-run `make evals-compare-prompts`. No code change
@@ -242,9 +240,15 @@ understands both forms and exempts pure refusals, so it actually tracks
 whether the agent follows its own attribution policy.
 
 Tune it in the orq.ai Studio — edit the prompt, click Publish, and the
-next eval run picks up the change. See
-[`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) for
-`SOURCE_CITATIONS_PROMPT`.
+next eval run picks up the change. The Studio's evaluator detail page
+shows the rubric prompt, the available log variables, and a built-in
+playground for testing the judgment against a sample (request,
+response) pair before saving:
+
+![Source citations evaluator detail in the orq.ai Studio](media/evaluator_source_citations_detail.png)
+
+See [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py)
+for the canonical `SOURCE_CITATIONS_PROMPT` that the bootstrap uploads.
 
 ### 3. Response Grounding (orq.ai LLM evaluator)
 

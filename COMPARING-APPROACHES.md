@@ -24,7 +24,7 @@ the orchestration logic lives.
 | **Versioning** | Git commits | Studio version history + environment tags |
 | **System prompt** | Fetched from orq.ai Prompts via `get_system_prompt()` with local fallback | Stored on the agent itself as `instructions` field |
 | **Tool definitions** | Arbitrary Python functions decorated with `@tool` | Orq built-in tools (KB search, web search, etc.) + MCP + HTTP tools registered in the Studio |
-| **Arbitrary Python tools** | ✅ Any function can be a tool (`search_documents`, `get_sales_by_model`, etc.) | ❌ Needs an MCP server or HTTP tool wrapper to call repo code |
+| **Arbitrary Python tools** | ✅ Any function can be a tool (`search_documents`, `get_top_dishes`, `get_orders_by_dish`, etc.) | ❌ Needs an MCP server or HTTP tool wrapper to call repo code |
 | **Custom routing / conditional edges** | ✅ Explicit `StateGraph` nodes (`guard_input → router → call_model → tools → call_model`) | ⚠️ Implicit — the agent LLM decides based on instructions |
 | **State management** | LangGraph state machine (`State` dataclass, typed transitions) | orq.ai Memory Stores (when configured) |
 | **Observability** | Via OTEL → orq.ai Traces (one graph tree per invocation) | Native — every step is captured automatically in Traces |
@@ -43,9 +43,9 @@ Pick the code-first LangGraph approach when:
    route → call_model → tools → call_model` loop has strict ordering and
    safety-first design. A managed agent LLM can drift on this.
 2. **You have arbitrary Python tools** — our 9 SQL tools
-   (`get_sales_by_model`, `get_top_performing_models`, etc.) are Python
-   functions with parameterized queries. Exposing them through a managed
-   agent requires wrapping each as an MCP server or HTTP tool.
+   (`get_orders_by_dish`, `get_top_dishes`, `get_cuisine_analysis`, etc.)
+   are Python functions with parameterized queries. Exposing them through
+   a managed agent requires wrapping each as an MCP server or HTTP tool.
 3. **You need state machines with typed transitions** — LangGraph's
    `StateGraph` gives you compile-time guarantees about graph topology.
 4. **You want git as the source of truth** — for regulated environments
@@ -77,19 +77,19 @@ Pick the Studio-first managed Agent when:
 
 ## What "same question" looks like in both
 
-Ask: **"What is the Toyota warranty for Europe?"**
+Ask: **"What allergens are listed for the Margherita Pizza?"**
 
 ### Approach A — LangGraph
 
 ```
 Hybrid Data Agent
 ├── guard_input (orq.ai safety evaluator)
-├── analyze_and_route_query → toyota
+├── analyze_and_route_query → on_topic
 ├── call_model (ChatOpenAI)
-│   └── tool_call: search_documents("Toyota warranty Europe")
+│   └── tool_call: search_documents("Margherita Pizza allergens")
 ├── tools (search_documents)
 │   └── httpx POST /v2/knowledge/.../search
-└── call_model (final response with citations)
+└── call_model (final response with citation to the Menu Book)
 ```
 
 Full execution tree visible in orq.ai Traces under `Hybrid Data Agent`.

@@ -10,7 +10,7 @@ import sys
 from dotenv import load_dotenv
 from orq_ai_sdk import Orq
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Add src to path so we can import settings
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))

@@ -2,7 +2,7 @@
 
 > **A runnable reference implementation showing how to build, observe, and evaluate LangGraph agents on orq.ai.**
 
-This repo is a working example of a LangGraph agent that reasons over both **structured data** (SQLite sales records) and **unstructured documents** (manuals, contracts, warranty policies via the orq.ai Knowledge Base), with the entire dev loop — prompts, retrieval, tracing, evaluation — managed through the orq.ai platform.
+This repo is a working example of a LangGraph agent that reasons over both **structured data** (SQLite delivery orders with ~1,700 rows across dishes, restaurants, and cities) and **unstructured documents** (menu book, refund/SLA policy, food safety policy, allergen labeling policy, delivery operations handbook, customer service playbook — stored in the orq.ai Knowledge Base), with the entire dev loop — prompts, retrieval, tracing, evaluation — managed through the orq.ai platform.
 
 ## What you'll learn
 
@@ -20,28 +20,34 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md]
 
 ## What the agent does
 
-- **Query structured sales data** — answers questions about vehicle sales via predefined SQL tools
-- **Search unstructured documents** — semantic search over manuals, contracts, and warranty policies via the orq.ai Knowledge Base
-- **Combine both** — agentic tool calling iterates between SQL and document search until it has a grounded answer
+- **Query structured order data** — answers questions about delivery performance (top dishes, orders by city, cuisine trends, restaurant rankings) via 9 typed SQL tools
+- **Search unstructured operations docs** — semantic search over the menu book, refund/SLA policy, food safety policy, allergen labeling, ops handbook, and customer service playbook
+- **Combine both** — agentic tool calling iterates between SQL and document search until it has a grounded answer (e.g. *"How is Margherita Pizza performing and what allergens does it contain?"*)
 - **Stay safe** — an orq.ai LLM evaluator classifies every message as SAFE or UNSAFE before any agent work runs, with OpenAI Moderation as a fallback
 
 ## Data Sources
 
-- **Sales Data** (SQLite): Vehicle sales by model, country, and date
-- **Documents** (orq.ai Knowledge Base): Toyota manuals, contracts, and warranty policies
+- **Order data** (SQLite): `fact_orders` star schema — one row per (restaurant × dish × month) with `orders_count`, `revenue_eur`, `avg_rating`, `avg_delivery_minutes`. Dimensions: `dim_dish` (30 dishes across 9 cuisines with allergens + calories), `dim_restaurant` (20 restaurants across 10 cities), `dim_city`. All synthetic with a fixed random seed for determinism.
+- **Operations docs** (orq.ai Knowledge Base): 6 PDFs — Menu Book, Refund & SLA Policy, Food Safety & Hygiene Policy, Allergen Labeling Policy, Delivery Operations Handbook, Customer Service Playbook. Markdown sources live under [`docs/sources/`](docs/sources/) and are rendered to PDF via [`scripts/generate_demo_pdfs.py`](scripts/generate_demo_pdfs.py).
 
 ### Example Questions
 
-**Using structured sales data:**
-- "What were the RAV4 sales in Germany in 2024?"
-- "Show me the top countries by vehicle sales"
+**Using structured order data:**
+- "Top 5 dishes by order count in Berlin last month"
+- "Which cuisines are performing best in 2024 by total orders and revenue?"
+- "Show me the monthly order trends for Italian cuisine"
+- "Top 10 restaurants by total revenue"
 
 **Using unstructured documents:**
-- "What is the Toyota warranty coverage?"
-- "Where is the tire repair kit in a Toyota C-HR?"
+- "What is our refund policy for orders delivered more than 60 minutes late?"
+- "What allergens are listed for the Margherita Pizza?"
+- "How should drivers handle contactless delivery to a non-responsive customer?"
+- "What temperature must hot meals stay above during transit?"
 
 **Hybrid:**
-- "Compare RAV4 sales and summarize its warranty"
+- "How is Margherita Pizza performing in sales and what allergens does it contain?"
+- "Show me the top 5 dishes in Amsterdam and what the menu book says about their ingredients"
+- "Compare Italian and Japanese cuisine performance and what our allergen policy says about typical allergens in each"
 
 
 ## How it works
@@ -49,34 +55,53 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md]
 The assistant uses a multi-step LangGraph workflow with routing:
 
 1. **Safety Check**: An orq.ai LLM evaluator (`hybrid-data-agent-safety`) classifies each user message as SAFE or UNSAFE before any agent work happens. Falls back to the OpenAI Moderation API if the evaluator is unreachable.
-2. **Query Analysis**: LLM classifies the question type and intent
-3. **Context-Aware Routing**: Routes to appropriate response path:
-   - **Toyota-specific**: If it detected that question is related to Toyota it uses
-   tools (predefined SQL queries and semantic search) to answer the question
-   - **Needs clarification**: Asks for more specific information
-   - **Off-topic**: Politely redirects to Toyota/Lexus topics
-4. **Agentic Tool Loop**: For Toyota questions, iterates between model and tools until complete
+2. **Query Analysis**: LLM classifies the question as `on_topic` / `more-info` / `general`
+3. **Context-Aware Routing**: Routes to the appropriate response path:
+   - **on_topic**: Question is about delivery orders, menu, dishes, restaurants, cities, policies, or operations — the agent uses SQL and document tools to answer
+   - **more-info**: Asks for clarification when the scope is ambiguous (e.g. *"tell me about orders"*)
+   - **general**: Politely redirects off-topic questions back to delivery-service topics
+4. **Agentic Tool Loop**: For on-topic questions, iterates between the model and the tools (KB search + SQL) until it has a grounded answer
 
-See below the agent architecture.
+The whole flow as a graph:
 
-![Agent Architecture](media/agent_architecture.png)
+```mermaid
+flowchart TD
+    Start([__start__]) --> Guard[guard_input<br/>orq.ai safety evaluator]
 
-For a detailed technical overview of the system architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+    Guard --> Safety{check_safety}
+    Safety -- unsafe --> Block[block_unsafe_content]
+    Safety -- safe --> Route[analyze_and_route_query]
+
+    Route --> RouteQuery{route_query}
+    RouteQuery -- general --> OffTopic[respond_to_offtopic_question]
+    RouteQuery -- more-info --> AskMore[ask_for_more_info]
+    RouteQuery -- on_topic --> CallModel[call_model]
+
+    CallModel <-->|agentic loop| Tools["tools (ToolNode)<br/>3 KB search tools + 9 SQL tools"]
+    CallModel -. no more tool_calls .-> End([__end__])
+
+    Block --> End
+    OffTopic --> End
+    AskMore --> End
+```
+
+Every box maps 1:1 to a node in [`src/assistant/graph.py`](src/assistant/graph.py).
+The `{check_safety}` and `{route_query}` diamonds are LangGraph conditional
+edges; the `<-->` between `call_model` and `tools` is the agentic loop the
+React-style agent uses to keep calling tools until it has enough context
+to answer.
+
+For a detailed technical overview of the system architecture (including
+the data-flow sequence diagram for a real query), see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 
 ## Demo
 
-### Basic Demo
+End-to-end walkthrough: the agent fielding a hybrid query that mixes
+structured order data (SQL tools) with unstructured policy/menu content
+(KB search), then surfacing the cited PDFs in the Chainlit side panel.
 
-Demo showing the agent using semantic search to find relevant documents.
-
-![Basic Demo](media/demo_optimized.gif)
-
-### Sales Data Analysis Demo
-
-Demo showing the agent using SQL capabilities to query the structured database.
-
-![Sales Data Analysis Demo](media/demo_sales_data_2_optimized.gif)
+![Hybrid Data Agent demo](media/demo_food_delivery.gif)
 
 
 
@@ -171,15 +196,28 @@ make ingest-data
 # Web interface. Runs Chainlit UI locally
 make run
 ```
-Visit `http://localhost:8000` to chat with the assistant.
+Visit `http://localhost:8000` to chat with the assistant. The welcome
+screen shows three starter prompts — one each for SQL-only,
+document-only, and mixed (hybrid) queries:
 
-![Hybrid Data Agent — welcome screen](media/chainlit_home_clean.png)
+![Hybrid Data Agent — Chainlit welcome screen with food starters](media/chainlit_home_food.png)
 
-The agent exposes its tool calls inline as the response streams in. Expand
-any step to see the exact input/output LangChain passed between nodes:
+Click any starter (or type your own question) and the agent streams its
+tool calls inline as the response comes in. The example below shows the
+**mixed** starter — *"How is Margherita Pizza performing in sales for
+2024 and what allergens does it contain?"* — combining a SQL query
+against `fact_orders` with a Knowledge Base search across the menu and
+food-safety policy. The answer renders a city-by-city sales table from
+the SQL tool, the allergen text from the Menu Book, and an inline PDF
+preview of `food_safety_and_hygiene_policy.pdf` opened to the relevant
+page. Citation tags at the bottom link each claim back to its source:
 
-![Hybrid Data Agent — inline tool trace](media/chainlit_tool_trace_yaris_safety.png)
+![Hybrid Data Agent — mixed Margherita query with PDF preview](media/chainlit_food_demo.png)
 
+Every node, tool call, and LLM round-trip is also captured in the
+orq.ai Studio Traces tab so you can drill into inputs / outputs /
+cost / latency at every step (see the [Observability](#observability)
+section below).
 
 6. **Run the agent using LangGraph Studio**
 
@@ -188,9 +226,9 @@ any step to see the exact input/output LangChain passed between nodes:
 make dev
 ```
 
-LangGraph Studio should automatically open in your browser.
-
-![LangGraph Studio Development](media/studio_dev.png)
+LangGraph Studio should automatically open in your browser. From there
+you can step through the graph node-by-node, inspect state at each
+checkpoint, and replay any historical thread.
 
 ### Option B: Docker
 
@@ -252,25 +290,33 @@ retrievals — with token usage and cost per step.
 See [`src/assistant/tracing.py`](src/assistant/tracing.py) for the OTEL setup
 that makes this work.
 
+### Project dashboard
+
+The Studio's project dashboard rolls everything up: total requests, cost,
+P95 latency, and the per-model + per-deployment breakdown across all
+traces from this agent.
+
+![Project dashboard with cost + latency overview](media/project_dashboard.png)
+
 ### Trace tree view
 
 Drill into a single run to inspect inputs, outputs, token usage, and cost at
 every step of the LangGraph execution.
 
-![Trace details view](media/trace_details_yaris_safety.png)
+![Trace details view](media/trace_details_food_demo.png)
 
 ### Timeline view
 
 View execution as a timeline to spot bottlenecks and measure step durations.
 
-![Trace timeline view](media/trace_timeline_yaris_safety.png)
+![Trace timeline view](media/trace_timeline_food_demo.png)
 
 ### Thread view
 
 Follow the conversation as a message thread to review how the agent reasoned
 through the problem.
 
-![Trace thread view](media/trace_thread_yaris_safety.png)
+![Trace thread view](media/trace_thread_food_demo.png)
 
 ## Tests, Continuous Integration and Evals
 
@@ -298,10 +344,6 @@ Running full evaluation pipeline and testing realistic [sample questions](resour
 # Make sure you set ORQ_API_KEY (see EVALS.md)
 make evals-run
 ```
-
-Terminal output — 15 datapoints, four scorers, per-row results synced to the Studio:
-
-![make evals-run terminal output](media/evals_run_terminal.png)
 
 **Evaluation Features:**
 
@@ -336,8 +378,14 @@ side-by-side comparison and guidance on when to pick which approach.
 ## Swap models via the AI Router
 
 All LLM calls are routed through `https://api.orq.ai/v2/router`, which is
-OpenAI-protocol-compatible. Swapping providers is a **one-line change** in
-`.env` — no code modifications, no re-deploy:
+OpenAI-protocol-compatible. The Studio's Models page shows every provider
+the Router knows about (OpenAI, Anthropic, Google, Groq, Mistral, Cohere,
+Together, etc.) with per-model pricing, context window, and capability flags:
+
+![orq.ai AI Router — supported models](media/ai_router_models.png)
+
+Swapping providers is a **one-line change** in `.env` — no code
+modifications, no re-deploy:
 
 ```bash
 # Default
@@ -373,8 +421,13 @@ return ChatOpenAI(
 ## Prompt A/B testing
 
 The system prompt is managed in orq.ai, so you can A/B test different versions
-against the evaluation dataset without a code change. Two variants are
-bootstrapped by `make setup-workspace`:
+against the evaluation dataset without a code change. Each prompt lives in
+the Studio as a versioned, taggable resource — edit, preview, and publish
+without touching the repo:
+
+![orq.ai Prompts — system prompt detail in the Studio](media/system_prompt_studio.png)
+
+Two variants are bootstrapped by `make setup-workspace`:
 
 - **Variant A** — the canonical, verbose prompt with grounding rules and response guidelines
 - **Variant B** — a deliberately concise version that strips the verbose sections
@@ -388,13 +441,17 @@ make evals-compare-prompts
 This runs the same 15 evaluation cases twice — once per variant — using
 evaluatorq's multi-job mode. All four scorers (`tool-accuracy`,
 `source-citations`, `response-grounding`, `hallucination-check`) are
-applied to both variants, and the results sync to orq.ai Studio as a
-single experiment with the variants side-by-side:
+applied to both variants. Terminal output streams the per-row dispatch +
+the final scorer breakdown for both variants:
 
-![Prompt A/B experiment — variant A vs variant B](media/experiment_prompt_ab_comparison.png)
+![make evals-compare-prompts terminal output](media/evals_compare_prompts_terminal.png)
+
+Results then sync to the orq.ai Studio as a single experiment with the
+two variants side-by-side, color-coded per scorer cell so it's easy to
+see which variant outperforms on which dimension.
 
 **To iterate on a variant:** edit it directly in the orq.ai Studio
-(`langgraph-demo → hybrid-data-agent-system-prompt-variant-b`), publish, then
+(`Onboarding-Langgraph → hybrid-data-agent-system-prompt-variant-b`), publish, then
 re-run `make evals-compare-prompts`. No code change or deploy required — the
 experiment picks up the latest published version.
 

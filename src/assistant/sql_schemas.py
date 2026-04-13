@@ -1,7 +1,20 @@
 """SQL query templates and parameter validation for the Hybrid Data Agent.
 
-This module contains the predefined SQL query templates and simple parameter validation
-for secure database operations.
+This module contains the predefined SQL query templates and simple parameter
+validation for secure database operations against the food-delivery schema:
+
+    fact_orders       one row per (restaurant, dish, month) with aggregates
+                      orders_count, revenue_eur, avg_rating, avg_delivery_minutes
+    dim_dish          dish_id, dish_name, cuisine, category, base_price_eur,
+                      calories, allergens
+    dim_restaurant    restaurant_id, restaurant_name, city_id, cuisine_type, avg_rating
+    dim_city          city_id, city_name, country, region
+
+The queries are parameterized and never string-interpolate user input —
+the LLM picks a `query_type` and passes validated `QueryParameters`, and
+the executor binds the values via sqlite3 placeholders. Adding a new query
+type is a matter of adding an entry to `QUERY_TEMPLATES` + a corresponding
+builder in `build_query_params` — no changes to the agent code.
 """
 
 from dataclasses import dataclass
@@ -13,15 +26,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class QueryParameters:
-    """Simple parameter container for SQL queries with basic validation."""
+    """Parameter container for SQL queries with basic validation.
 
-    model_name: Optional[str] = None
+    Every field is optional so the same dataclass can serve any of the
+    9 query types. The executor's `build_query_params` / `build_final_params`
+    decides which fields each query type actually consumes.
+    """
+
+    dish_name: Optional[str] = None
+    city: Optional[str] = None
     country: Optional[str] = None
     region: Optional[str] = None
     year: Optional[int] = None
     month: Optional[int] = None
-    brand: Optional[str] = None
-    powertrain: Optional[str] = None
+    restaurant: Optional[str] = None
+    cuisine: Optional[str] = None
+    category: Optional[str] = None
     limit: Optional[int] = None
 
     def validate(self) -> bool:
@@ -35,192 +55,221 @@ class QueryParameters:
         if self.limit and (self.limit < 1 or self.limit > 1000):
             logger.warning(f"Invalid limit: {self.limit}")
             return False
-        # Basic string validation
-        if self.model_name and len(self.model_name) > 100:
-            logger.warning(f"Model name too long: {len(self.model_name)}")
-            return False
-        if self.country and len(self.country) > 100:
-            logger.warning(f"Country name too long: {len(self.country)}")
-            return False
+        # Length caps — cheap defense against injection-length abuse.
+        for name, value in (
+            ("dish_name", self.dish_name),
+            ("city", self.city),
+            ("country", self.country),
+            ("region", self.region),
+            ("restaurant", self.restaurant),
+            ("cuisine", self.cuisine),
+            ("category", self.category),
+        ):
+            if value and len(value) > 100:
+                logger.warning(f"{name} too long: {len(value)}")
+                return False
         return True
 
 
-# SQL Query Templates - Parameterized and secure
+# SQL Query Templates — parameterized and secure.
+#
+# Every query groups fact_orders at (year, month, …) and exposes the four
+# numeric aggregates the tools care about:
+#   - total_orders           SUM(orders_count)
+#   - total_revenue_eur      SUM(revenue_eur)
+#   - avg_rating             AVG(avg_rating)    weighted by orders_count
+#   - avg_delivery_minutes   AVG(avg_delivery_minutes)
 QUERY_TEMPLATES = {
-    "sales_by_model": """
+    "orders_by_dish": """
         SELECT
-            fs.year,
-            fs.month,
-            dm.model_name,
-            dm.brand,
-            dm.powertrain,
+            fo.year,
+            fo.month,
+            dd.dish_name,
+            dd.cuisine,
+            dd.category,
+            dc.city_name,
             dc.country,
-            dc.region,
-            SUM(fs.contracts) as total_sales
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        WHERE dm.model_name LIKE ? AND fs.year = ?
-        {country_filter}
-        GROUP BY fs.year, fs.month, dm.model_name, dm.brand, dm.powertrain, dc.country, dc.region
-        ORDER BY fs.year, fs.month, total_sales DESC
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating,
+            ROUND(AVG(fo.avg_delivery_minutes), 1) AS avg_delivery_minutes
+        FROM fact_orders fo
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        WHERE dd.dish_name LIKE ? AND fo.year = ?
+        {city_filter}
+        GROUP BY fo.year, fo.month, dd.dish_name, dd.cuisine, dd.category, dc.city_name, dc.country
+        ORDER BY fo.year, fo.month, total_orders DESC
         LIMIT ?
     """,
-    "sales_by_country": """
-        SELECT
-            dc.country,
-            dc.region,
-            dm.brand,
-            dm.model_name,
-            SUM(fs.contracts) as total_sales
-        FROM fact_sales fs
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        WHERE dc.country = ? AND fs.year = ?
-        {brand_filter}
-        GROUP BY dc.country, dc.region, dm.brand, dm.model_name
-        ORDER BY total_sales DESC
-        LIMIT ?
-    """,
-    "sales_by_region": """
-        SELECT
-            dc.region,
-            dc.country,
-            dm.brand,
-            dm.model_name,
-            SUM(fs.contracts) as total_sales
-        FROM fact_sales fs
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        WHERE dc.region LIKE ? AND fs.year = ?
-        {brand_filter}
-        GROUP BY dc.region, dc.country, dm.brand, dm.model_name
-        ORDER BY total_sales DESC
-        LIMIT ?
-    """,
-    "sales_trends": """
-        SELECT
-            fs.year,
-            fs.month,
-            dm.brand,
-            SUM(fs.contracts) as total_sales,
-            COUNT(DISTINCT dm.model_name) as model_count
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        WHERE fs.year = ?
-        {brand_filter}
-        GROUP BY fs.year, fs.month, dm.brand
-        ORDER BY fs.year, fs.month
-        LIMIT ?
-    """,
-    "top_performers": """
-        SELECT
-            dm.model_name,
-            dm.brand,
-            dm.powertrain,
-            SUM(fs.contracts) as total_sales,
-            COUNT(DISTINCT dc.country) as countries_sold
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        WHERE fs.year = ?
-        {brand_filter}
-        GROUP BY dm.model_name, dm.brand, dm.powertrain
-        ORDER BY total_sales DESC
-        LIMIT ?
-    """,
-    "powertrain_analysis": """
-        SELECT
-            dm.powertrain,
-            dm.brand,
-            COUNT(DISTINCT dm.model_name) as model_count,
-            SUM(fs.contracts) as total_sales,
-            ROUND(AVG(fs.contracts), 2) as avg_monthly_sales,
-            COUNT(DISTINCT dc.country) as countries_sold
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        WHERE fs.year = ?
-        {brand_filter}
-        GROUP BY dm.powertrain, dm.brand
-        ORDER BY total_sales DESC
-        LIMIT ?
-    """,
-    "model_comparison": """
-        SELECT
-            dm.model_name,
-            dm.brand,
-            dm.powertrain,
-            fs.year,
-            fs.month,
-            SUM(fs.contracts) as total_sales,
-            COUNT(DISTINCT dc.country) as countries_sold
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        WHERE fs.year = ? AND dm.brand = ?
-        GROUP BY dm.model_name, dm.brand, dm.powertrain, fs.year, fs.month
-        ORDER BY total_sales DESC
-        LIMIT ?
-    """,
-    "top_countries": """
+    "orders_by_country": """
         SELECT
             dc.country,
             dc.region,
-            dm.brand,
-            SUM(fs.contracts) as total_sales,
-            COUNT(DISTINCT dm.model_name) as models_sold
-        FROM fact_sales fs
-        JOIN dim_country dc ON fs.country_code = dc.country_code
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        WHERE fs.year = ?
-        {brand_filter}
-        GROUP BY dc.country, dc.region, dm.brand
-        ORDER BY total_sales DESC
+            dd.cuisine,
+            dd.dish_name,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating
+        FROM fact_orders fo
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE dc.country = ? AND fo.year = ?
+        {cuisine_filter}
+        GROUP BY dc.country, dc.region, dd.cuisine, dd.dish_name
+        ORDER BY total_orders DESC
         LIMIT ?
     """,
-    "powertrain_trends": """
+    "orders_by_region": """
         SELECT
-            fs.year,
-            fs.month,
-            dm.powertrain,
-            dm.brand,
-            SUM(fs.contracts) as total_sales,
-            COUNT(DISTINCT dm.model_name) as model_count
-        FROM fact_sales fs
-        JOIN dim_model dm ON fs.model_id = dm.model_id
-        WHERE fs.year = ? AND dm.powertrain LIKE ?
-        {brand_filter}
-        GROUP BY fs.year, fs.month, dm.powertrain, dm.brand
-        ORDER BY fs.year, fs.month
+            dc.region,
+            dc.country,
+            dd.cuisine,
+            dd.dish_name,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur
+        FROM fact_orders fo
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE dc.region LIKE ? AND fo.year = ?
+        {cuisine_filter}
+        GROUP BY dc.region, dc.country, dd.cuisine, dd.dish_name
+        ORDER BY total_orders DESC
+        LIMIT ?
+    """,
+    "order_trends": """
+        SELECT
+            fo.year,
+            fo.month,
+            dd.cuisine,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            COUNT(DISTINCT dd.dish_name) AS dish_count
+        FROM fact_orders fo
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE fo.year = ?
+        {cuisine_filter}
+        GROUP BY fo.year, fo.month, dd.cuisine
+        ORDER BY fo.year, fo.month
+        LIMIT ?
+    """,
+    "top_dishes": """
+        SELECT
+            dd.dish_name,
+            dd.cuisine,
+            dd.category,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating,
+            COUNT(DISTINCT dc.city_name) AS cities_sold
+        FROM fact_orders fo
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        WHERE fo.year = ?
+        {cuisine_filter}
+        GROUP BY dd.dish_name, dd.cuisine, dd.category
+        ORDER BY total_orders DESC
+        LIMIT ?
+    """,
+    "cuisine_analysis": """
+        SELECT
+            dd.cuisine,
+            COUNT(DISTINCT dd.dish_name) AS dish_count,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating,
+            ROUND(AVG(fo.avg_delivery_minutes), 1) AS avg_delivery_minutes,
+            COUNT(DISTINCT dc.city_name) AS cities_sold
+        FROM fact_orders fo
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        WHERE fo.year = ?
+        {cuisine_filter}
+        GROUP BY dd.cuisine
+        ORDER BY total_orders DESC
+        LIMIT ?
+    """,
+    "dishes_by_restaurant": """
+        SELECT
+            dr.restaurant_name,
+            dr.cuisine_type,
+            dd.dish_name,
+            dd.category,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating
+        FROM fact_orders fo
+        JOIN dim_restaurant dr ON fo.restaurant_id = dr.restaurant_id
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE fo.year = ? AND dr.restaurant_name LIKE ?
+        GROUP BY dr.restaurant_name, dr.cuisine_type, dd.dish_name, dd.category
+        ORDER BY total_orders DESC
+        LIMIT ?
+    """,
+    "top_cities": """
+        SELECT
+            dc.city_name,
+            dc.country,
+            dc.region,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            ROUND(AVG(fo.avg_rating), 2) AS avg_rating,
+            COUNT(DISTINCT dd.dish_name) AS dishes_sold
+        FROM fact_orders fo
+        JOIN dim_city dc ON fo.city_id = dc.city_id
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE fo.year = ?
+        {cuisine_filter}
+        GROUP BY dc.city_name, dc.country, dc.region
+        ORDER BY total_orders DESC
+        LIMIT ?
+    """,
+    "cuisine_order_trends": """
+        SELECT
+            fo.year,
+            fo.month,
+            dd.cuisine,
+            SUM(fo.orders_count) AS total_orders,
+            ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur,
+            COUNT(DISTINCT dd.dish_name) AS dish_count
+        FROM fact_orders fo
+        JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+        WHERE fo.year = ? AND dd.cuisine LIKE ?
+        GROUP BY fo.year, fo.month, dd.cuisine
+        ORDER BY fo.year, fo.month
         LIMIT ?
     """,
 }
 
 
 def build_query_params(query_type: str, params: QueryParameters) -> List[Any]:
-    """Build parameter list for specific query types."""
+    """Build the positional parameter list (excluding filter-injected params)
+    for a given query type. The full list is assembled by `build_final_params`
+    which also appends any optional-filter parameters."""
 
-    # Set default values
     year = params.year or 2024
     limit = params.limit or 20
 
     param_builders = {
-        "sales_by_model": lambda: [
-            f"{params.model_name}%" if params.model_name else "%",
+        "orders_by_dish": lambda: [
+            f"%{params.dish_name}%" if params.dish_name else "%",
             year,
             limit,
         ],
-        "sales_by_country": lambda: [params.country or "Germany", year, limit],
-        "sales_by_region": lambda: [f"%{params.region or 'Europe'}%", year, limit],
-        "sales_trends": lambda: [year, limit],
-        "top_performers": lambda: [year, limit],
-        "powertrain_analysis": lambda: [year, limit],
-        "model_comparison": lambda: [year, params.brand or "Toyota", limit],
-        "top_countries": lambda: [year, limit],
-        "powertrain_trends": lambda: [
+        "orders_by_country": lambda: [params.country or "Germany", year, limit],
+        "orders_by_region": lambda: [f"%{params.region or 'Europe'}%", year, limit],
+        "order_trends": lambda: [year, limit],
+        "top_dishes": lambda: [year, limit],
+        "cuisine_analysis": lambda: [year, limit],
+        "dishes_by_restaurant": lambda: [
             year,
-            f"{params.powertrain}%" if params.powertrain else "%",
+            f"%{params.restaurant}%" if params.restaurant else "%",
+            limit,
+        ],
+        "top_cities": lambda: [year, limit],
+        "cuisine_order_trends": lambda: [
+            year,
+            f"%{params.cuisine}%" if params.cuisine else "%",
             limit,
         ],
     }
@@ -228,65 +277,50 @@ def build_query_params(query_type: str, params: QueryParameters) -> List[Any]:
     return param_builders.get(query_type, lambda: [])()
 
 
+# Which query types accept the optional `cuisine` filter. Kept as a set so
+# `build_query_with_filters` and `build_final_params` stay in sync.
+_CUISINE_FILTERABLE = {
+    "orders_by_country",
+    "orders_by_region",
+    "order_trends",
+    "top_dishes",
+    "cuisine_analysis",
+    "top_cities",
+}
+
+
 def build_query_with_filters(query_type: str, params: QueryParameters) -> str:
-    """Build query with optional filters applied."""
+    """Format the query template with any optional filter clauses inserted."""
     base_query = QUERY_TEMPLATES.get(query_type, "")
 
-    # Handle optional filters
-    country_filter = ""
-    brand_filter = ""
+    city_filter = ""
+    cuisine_filter = ""
 
-    if query_type in ["sales_by_model"] and params.country:
-        country_filter = "AND dc.country = ?"
+    # `orders_by_dish` is the one query that narrows by city (not cuisine).
+    if query_type == "orders_by_dish" and params.city:
+        city_filter = "AND dc.city_name = ?"
 
-    if (
-        query_type
-        in [
-            "sales_by_country",
-            "sales_by_region",
-            "sales_trends",
-            "top_performers",
-            "powertrain_analysis",
-            "top_countries",
-            "powertrain_trends",
-        ]
-        and params.brand
-    ):
-        brand_filter = "AND dm.brand = ?"
+    if query_type in _CUISINE_FILTERABLE and params.cuisine:
+        cuisine_filter = "AND dd.cuisine = ?"
 
-    # Format the query with filters
-    formatted_query = base_query.format(country_filter=country_filter, brand_filter=brand_filter)
-
-    return formatted_query
+    return base_query.format(city_filter=city_filter, cuisine_filter=cuisine_filter)
 
 
 def build_final_params(query_type: str, params: QueryParameters) -> List[Any]:
-    """Build final parameter list including optional filter parameters."""
+    """Build the final parameter list, inserting optional filter values in
+    the exact position the sqlite3 `?` placeholders expect them."""
     base_params = build_query_params(query_type, params)
 
-    # Add additional parameters for filters
-    if query_type == "sales_by_model" and params.country:
-        # Insert country parameter before limit
-        base_params.insert(-1, params.country)
+    # Inserted before the trailing LIMIT so it aligns with the `?` that
+    # build_query_with_filters adds via the `{city_filter}` slot.
+    if query_type == "orders_by_dish" and params.city:
+        base_params.insert(-1, params.city)
 
-    elif (
-        query_type
-        in [
-            "sales_by_country",
-            "sales_by_region",
-            "sales_trends",
-            "top_performers",
-            "powertrain_analysis",
-            "top_countries",
-            "powertrain_trends",
-        ]
-        and params.brand
-    ):
-        # Insert brand parameter before limit
-        base_params.insert(-1, params.brand)
+    elif query_type in _CUISINE_FILTERABLE and params.cuisine:
+        base_params.insert(-1, params.cuisine)
 
     return base_params
 
 
-# Available query types for documentation
+# Available query types for documentation and validation.
 AVAILABLE_QUERY_TYPES = list(QUERY_TEMPLATES.keys())

@@ -239,9 +239,13 @@ async def on_message(message: cl.Message):
     if search_results:
         logger.info(f"Found {len(search_results)} KB hits in tool artifacts")
 
-        # Chainlit serves files under `public/` as static assets. Fine for a
-        # prototype; production would use blob storage + auth'd URLs.
-        docs_dir = Path(__file__).parent.parent / "public" / "docs"
+        # Read PDFs from the same `docs/` directory the ingestion pipeline
+        # uploaded to the orq.ai KB — single source of truth, no risk of
+        # drift between what the agent retrieves and what the UI previews.
+        # `cl.Pdf(path=...)` takes a server-side filesystem path; Chainlit
+        # streams the file to the client over its own channel, so the file
+        # doesn't need to be under `public/` to be loadable.
+        docs_dir = Path(__file__).parent.parent / "docs"
 
         pdf_elements = create_pdf_elements_from_search_results(search_results, docs_dir)
 

@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-"""
-Simple script to ingest Toyota sales data into SQLite database.
-Hard-coded CSV file paths for simplicity.
+"""Ingest the synthetic food-delivery dataset into SQLite.
+
+Reads four CSVs under `data/` (produced by
+`scripts/generate_demo_orders.py`) and loads them into the SQLite database
+the agent's SQL tools query. Re-runnable: tables are dropped and recreated
+each time.
+
+Usage:
+    make ingest-sql
+    # or
+    uv run python scripts/structured_data_ingestion_pipeline.py
 """
 
 import logging
 from pathlib import Path
 import sqlite3
+import sys
 
 import pandas as pd
 
@@ -14,105 +23,100 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from core.settings import settings  # noqa: E402
 
-def ingest_csv_to_sqlite():
-    """Ingest all CSV files into SQLite database."""
+# Maps source CSV filenames to SQLite table names. The order matters only
+# insofar as dimensions load before the fact table so error messages are
+# easier to read if something is missing.
+CSV_TO_TABLE = {
+    "DIM_CITY.csv": "dim_city",
+    "DIM_DISH.csv": "dim_dish",
+    "DIM_RESTAURANT.csv": "dim_restaurant",
+    "FACT_ORDERS.csv": "fact_orders",
+}
 
-    # Database configuration
-    db_path = "toyota_sales.db"
+
+def ingest_csv_to_sqlite() -> None:
+    """Load every CSV into the target SQLite database."""
+    db_path = str(settings.DEFAULT_SQLITE_PATH)
     data_dir = Path("data")
 
-    # CSV files and their table names (hard-coded)
-    csv_files = {
-        "DIM_COUNTRY.csv": "dim_country",
-        "DIM_MODEL.csv": "dim_model",
-        "DIM_ORDERTYPE.csv": "dim_ordertype",
-        "FACT_SALES.csv": "fact_sales",
-        "FACT_SALES_ORDERTYPE.csv": "fact_sales_ordertype",
-    }
+    # Auto-generate the CSVs if they're missing — first-run convenience so
+    # `make ingest-sql` works right after clone without a separate step.
+    if not (data_dir / "FACT_ORDERS.csv").exists():
+        logger.info("CSVs not found — running generate_demo_orders.py first")
+        from scripts.generate_demo_orders import main as gen_main  # type: ignore
 
-    # Connect to SQLite database (creates if not exists)
+        gen_main()
+
     logger.info(f"Connecting to SQLite database: {db_path}")
     conn = sqlite3.connect(db_path)
 
     try:
         total_rows = 0
 
-        # Process each CSV file
-        for csv_file, table_name in csv_files.items():
+        for csv_file, table_name in CSV_TO_TABLE.items():
             file_path = data_dir / csv_file
+            if not file_path.exists():
+                logger.error(f"Missing CSV: {file_path}")
+                raise FileNotFoundError(f"Expected CSV at {file_path}")
 
             logger.info(f"Processing {csv_file}...")
-
-            # Load CSV into DataFrame
             df = pd.read_csv(file_path)
-            logger.info(f"Loaded {len(df)} rows from {csv_file}")
+            logger.info(f"Loaded {len(df):,} rows from {csv_file}")
 
-            # Write data to SQLite table (replace if exists)
             df.to_sql(table_name, conn, if_exists="replace", index=False)
-            logger.info(f"Created table '{table_name}' with {len(df)} rows")
+            logger.info(f"Created table '{table_name}' with {len(df):,} rows")
 
             total_rows += len(df)
 
-        logger.info(f"Successfully ingested {total_rows} total rows into {len(csv_files)} tables")
+        logger.info(
+            f"Successfully ingested {total_rows:,} total rows into {len(CSV_TO_TABLE)} tables"
+        )
 
-        # Show table information
+        # Summary table so the operator sees everything at a glance.
         logger.info("\nDatabase summary:")
         cursor = conn.cursor()
-
-        # Get all table names
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
-
-        for table in tables:
-            table_name = table[0]
+        for (table_name,) in cursor.fetchall():
             cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
             count = cursor.fetchone()[0]
             logger.info(f"  {table_name}: {count:,} rows")
 
-        # Run example queries
-        logger.info("\nRunning example queries...")
+        # Example sanity queries — these confirm the star schema JOINs work.
+        logger.info("\nExample query 1: total orders by country")
+        cursor.execute(
+            """
+            SELECT
+                dc.country,
+                SUM(fo.orders_count) AS total_orders,
+                ROUND(SUM(fo.revenue_eur), 2) AS total_revenue_eur
+            FROM fact_orders fo
+            JOIN dim_city dc ON fo.city_id = dc.city_id
+            GROUP BY dc.country
+            ORDER BY total_orders DESC
+            """
+        )
+        for row in cursor.fetchall():
+            print(f"  {row[0]:<15} {row[1]:>8}  €{row[2]:>12,.2f}")
 
-        # Query 1: Simple country list
-        logger.info("\nQuery 1: All countries")
-        cursor.execute("SELECT * FROM dim_country")
-        countries = cursor.fetchall()
-        for row in countries:
-            print(f"  {row}")
-
-        # Query 2: Total sales by country
-        logger.info("\nQuery 2: Total sales by country")
-        query = """
-        SELECT
-            c.country,
-            c.region,
-            SUM(f.contracts) as total_contracts
-        FROM fact_sales f
-        JOIN dim_country c ON f.country_code = c.country_code
-        GROUP BY c.country, c.region
-        ORDER BY total_contracts DESC
-        """
-        cursor.execute(query)
-        results = cursor.fetchall()
-        for row in results:
-            print(f"  {row[0]:<15} {row[1]:<15} {row[2]:>8}")
-
-        # Query 3: Sales by brand
-        logger.info("\nQuery 3: Sales by brand and powertrain")
-        query = """
-        SELECT
-            m.brand,
-            m.powertrain,
-            SUM(f.contracts) as total_contracts
-        FROM fact_sales f
-        JOIN dim_model m ON f.model_id = m.model_id
-        GROUP BY m.brand, m.powertrain
-        ORDER BY total_contracts DESC
-        """
-        cursor.execute(query)
-        results = cursor.fetchall()
-        for row in results:
-            print(f"  {row[0]:<8} {row[1]:<8} {row[2]:>8}")
+        logger.info("\nExample query 2: top 5 dishes by orders")
+        cursor.execute(
+            """
+            SELECT
+                dd.dish_name,
+                dd.cuisine,
+                SUM(fo.orders_count) AS total_orders
+            FROM fact_orders fo
+            JOIN dim_dish dd ON fo.dish_id = dd.dish_id
+            GROUP BY dd.dish_name, dd.cuisine
+            ORDER BY total_orders DESC
+            LIMIT 5
+            """
+        )
+        for row in cursor.fetchall():
+            print(f"  {row[0]:<28} {row[1]:<15} {row[2]:>8}")
 
         logger.info("\nData ingestion completed successfully!")
         logger.info(f"Database file: {db_path}")
@@ -121,14 +125,12 @@ def ingest_csv_to_sqlite():
         logger.error(f"Error during ingestion: {e}")
         raise
     finally:
-        # Close connection
         conn.close()
         logger.info("Database connection closed")
 
 
-def main():
-    """Main function."""
-    logger.info("Starting Toyota sales data ingestion to SQLite...")
+def main() -> None:
+    logger.info("Starting food-delivery data ingestion to SQLite...")
     ingest_csv_to_sqlite()
 
 

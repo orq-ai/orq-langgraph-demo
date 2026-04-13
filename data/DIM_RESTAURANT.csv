@@ -1,0 +1,21 @@
+restaurant_id,restaurant_name,city_id,cuisine_type,avg_rating
+1,Trattoria Marco,3,Italian,4.6
+2,La Piazza,4,Italian,4.4
+3,Pasta Fresca,1,Italian,4.5
+4,Sushi Zen,6,Japanese,4.7
+5,Tokyo Kitchen,5,Japanese,4.3
+6,Ramen Ichiban,1,Japanese,4.5
+7,Bombay House,2,Indian,4.4
+8,Taj Palace,8,Indian,4.6
+9,Spice Garden,6,Indian,4.2
+10,El Sombrero,5,Mexican,4.3
+11,Casa Mexicana,8,Mexican,4.5
+12,Burger Avenue,1,American,4.2
+13,Liberty Grill,10,American,4.4
+14,Smoke & Bones BBQ,2,American,4.6
+15,Beirut Corner,7,Middle Eastern,4.3
+16,Falafel King,9,Middle Eastern,4.1
+17,Bangkok Garden,7,Thai,4.5
+18,Thai Orchid,4,Thai,4.2
+19,Athens Taverna,9,Greek,4.5
+20,Zorba's Kitchen,10,Greek,4.3

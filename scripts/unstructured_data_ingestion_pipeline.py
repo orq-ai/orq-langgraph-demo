@@ -36,7 +36,7 @@ from orq_ai_sdk import Orq
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 from core.settings import settings
 
-load_dotenv()
+load_dotenv(override=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -407,10 +407,10 @@ class OrqPDFIngestionPipeline:
 
         if sample_queries is None:
             sample_queries = [
-                "Toyota warranty policy",
-                "Lexus contract terms",
-                "vehicle maintenance requirements",
-                "warranty coverage period",
+                "refund policy for late delivery",
+                "allergens in Margherita pizza",
+                "driver protocol for contactless delivery",
+                "food safety temperature control",
             ]
 
         def run_search(query: str) -> List[Dict[str, Any]]:
@@ -527,10 +527,10 @@ def main():
         print("\nVerifying ingestion...")
         verification = pipeline.verify_ingestion(
             [
-                "Toyota warranty policy",
-                "Lexus contract terms",
-                "vehicle maintenance requirements",
-                "warranty coverage period",
+                "refund policy for late delivery",
+                "allergens in Margherita pizza",
+                "driver protocol for contactless delivery",
+                "food safety temperature control",
             ]
         )
 

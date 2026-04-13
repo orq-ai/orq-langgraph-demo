@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Literal, cast
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     # dotenv not available, environment variables should be set directly
     pass
@@ -170,7 +170,7 @@ async def ask_for_more_info(state: State, runtime: Runtime[Context]) -> Dict[str
 
 
 async def respond_to_offtopic_question(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """Generate a response to a general query not related to Toyota/Lexus.
+    """Generate a response to an off-topic query (not about the delivery service).
 
     This node is called when the router classifies the query as a general question.
 
@@ -223,7 +223,7 @@ def route_query(
     # The user-facing "routed as X" log is emitted by analyze_and_route_query
     # at INFO. This function only needs to map type → node, so its per-branch
     # logs stay at DEBUG to avoid doubling up.
-    if router_type == "toyota":
+    if router_type == "on_topic":
         logger.debug("Routing to tool processing")
         return "call_model"
     elif router_type == "more-info":

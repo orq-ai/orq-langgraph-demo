@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 class Router(BaseModel):
     """Router model for query classification (used as LLM structured output)."""
 
-    type: str = Field(description="The type of query: 'toyota', 'more-info', or 'general'")
+    type: str = Field(description="The type of query: 'on_topic', 'more-info', or 'general'")
     logic: str = Field(description="The reasoning for the classification")
 
 

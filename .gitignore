@@ -162,13 +162,16 @@ logs/
 
 # API keys and secrets
 .env.local
-.env.backup
+.env.backup*
 .env.production
 .env.staging
 secrets.txt
 api_keys.txt
 
 .chainlit/translations/*
+
+# Chainlit runtime file cache (created when cl.Pdf / cl.File elements render)
+.files/
 
 # LangGraph
 .langgraph/
