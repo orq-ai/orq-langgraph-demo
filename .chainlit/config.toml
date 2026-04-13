@@ -89,7 +89,7 @@ alert_style = "classic"
      name = "Repository"
      display_name = "Repository"
      icon_url = "https://icons.getbootstrap.com/assets/icons/github.svg"
-     url = "https://github.com/arianpasquali/basic-reference-rag-implementation"
+     url = "https://github.com/orq-ai/orq-langgraph-demo"
 
 [meta]
 generated_by = "2.6.3"
