@@ -2,7 +2,9 @@
 
 > **A runnable reference implementation showing how to build, observe, and evaluate LangGraph agents on orq.ai.**
 
-This repo is a working example of a LangGraph agent that reasons over both **structured data** (SQLite delivery orders with ~1,700 rows across dishes, restaurants, and cities) and **unstructured documents** (menu book, refund/SLA policy, food safety policy, allergen labeling policy, delivery operations handbook, customer service playbook — stored in the orq.ai Knowledge Base), with the entire dev loop — prompts, retrieval, tracing, evaluation — managed through the orq.ai platform.
+This repo is the canonical reference for wiring **LangGraph** to the **orq.ai platform** end-to-end — managed prompts, hybrid Knowledge Base search, the AI Router, LLM-judge evaluators, versioned datasets, and the evaluatorq pipeline — all exercised by a concrete agent that reasons over both **structured delivery-order data** (SQLite, ~1,700 rows across dishes, restaurants, and cities) and **unstructured operations documents** (menu book, refund/SLA policy, food safety, allergen labeling, ops handbook, customer-service playbook — in an orq.ai Knowledge Base). Every integration surface is wired, traced, and evaluated, so you can clone the repo and see what a production-shaped LangGraph-on-orq.ai deployment looks like end-to-end.
+
+**Two tracing backends ship side by side.** The default `orq_ai_sdk.langchain` **callback handler** is the recommended path for new LangGraph projects — zero OTEL setup, every node auto-registered in the orq.ai Studio. A parallel **OpenTelemetry exporter** is kept as an educational reference for teams that already run their own OTEL collector. Switching is a one-line `.env` change (`ORQ_TRACING_BACKEND`). For the full tradeoff analysis, setup, and switching instructions, see the [**LangGraph ↔ orq.ai integration guide**](LANGGRAPH-INTEGRATION.md).
 
 ## What you'll learn
 
@@ -11,12 +13,13 @@ This repo is a working example of a LangGraph agent that reasons over both **str
 | **AI Router** | Multi-provider LLM access, cost tracking, fallbacks, one-line model swaps | [`src/assistant/utils.py`](src/assistant/utils.py) — `load_chat_model()` |
 | **Knowledge Base** | Managed RAG — embeddings, chunking metadata, hybrid/vector/keyword search, zero infrastructure | [`scripts/unstructured_data_ingestion_pipeline.py`](scripts/unstructured_data_ingestion_pipeline.py) (ingest) · [`src/assistant/kb_tools.py`](src/assistant/kb_tools.py) (search) |
 | **Prompts** | Version system prompts without redeploying; A/B test changes against a dataset | [`src/assistant/prompts.py`](src/assistant/prompts.py) — `get_system_prompt()` |
-| **Traces (OTEL)** | Full LangGraph execution tree with cost + latency per node, tool call, and LLM request | [`src/assistant/tracing.py`](src/assistant/tracing.py) — `setup_tracing()` |
+| **Traces** | Full LangGraph execution tree with cost + latency per node, tool call, and LLM request — two interchangeable backends (callback handler by default, OTEL exporter as an alternative) | [`src/assistant/tracing.py`](src/assistant/tracing.py) — `setup_tracing()` · [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the tradeoffs |
 | **evaluatorq** | Programmatic PASS/FAIL scorers, CI/CD gating, experiment comparison in the Studio | [`evals/run_evals.py`](evals/run_evals.py) |
 | **Datasets** | Versioned test cases, reusable across experiments | [`evals/datasets/tool_calling_evals.jsonl`](evals/datasets/tool_calling_evals.jsonl) |
 | **Workspace bootstrap** | Idempotent one-command setup for project + KB + prompt + dataset | [`scripts/setup_orq_workspace.py`](scripts/setup_orq_workspace.py) |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for architecture decisions and [EVALS.md](EVALS.md) for the evaluation pipeline.
+
 
 ## What the agent does
 
@@ -290,12 +293,16 @@ hybrid/vector/keyword modes and thresholds — before wiring the KB to the agent
 ## Observability
 
 Every LangGraph execution (from the Chainlit UI, eval runs, or direct
-invocation) is traced to the orq.ai Studio via OpenTelemetry. The full graph
-tree is captured — nodes, LLM calls, tool executions, and Knowledge Base
-retrievals — with token usage and cost per step.
+invocation) is traced to the orq.ai Studio. The full graph tree is captured —
+nodes, LLM calls, tool executions, and Knowledge Base retrievals — with token
+usage and cost per step.
 
-See [`src/assistant/tracing.py`](src/assistant/tracing.py) for the OTEL setup
-that makes this work.
+Two backends are shipped side by side: the `orq_ai_sdk.langchain` callback
+handler (default, recommended for new LangGraph apps) and an OpenTelemetry
+exporter (kept as educational reference). Switch with `ORQ_TRACING_BACKEND` in
+`.env`. See [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the
+tradeoffs and [`src/assistant/tracing.py`](src/assistant/tracing.py) for the
+dispatcher.
 
 ### Project dashboard
 
