@@ -106,7 +106,38 @@ structured order data (SQL tools) with unstructured policy/menu content
 
 ![Hybrid Data Agent demo](media/demo_food_delivery.gif)
 
+## Observability
 
+Every LangGraph execution (from the Chainlit UI, eval runs, or direct
+invocation) is traced to the orq.ai Studio. The full graph tree is captured —
+nodes, LLM calls, tool executions, and Knowledge Base retrievals — with token
+usage and cost per step.
+
+Two backends are shipped side by side: the `orq_ai_sdk.langchain` callback
+handler (default, recommended for new LangGraph apps) and an OpenTelemetry
+exporter (kept as educational reference). Switch with `ORQ_TRACING_BACKEND` in
+`.env`. See [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the
+tradeoffs and [`src/assistant/tracing.py`](src/assistant/tracing.py) for the
+dispatcher.
+
+### Project dashboard
+
+The Studio's project dashboard rolls everything up: total requests, cost,
+P95 latency, and the per-model + per-deployment breakdown across all
+traces from this agent.
+
+![Project dashboard with cost + latency overview](media/project_dashboard.png)
+
+### Trace tree view
+
+Drill into a single run to inspect inputs, outputs, token usage, and cost at
+every step of the LangGraph execution.
+
+![Trace details view](media/trace_details_food_demo.png)
+
+For the timeline and thread views (useful for spotting bottlenecks and
+reviewing how the agent reasoned through a problem), see
+[ARCHITECTURE.md#observability](ARCHITECTURE.md#observability).
 
 ## Quick Start
 
@@ -289,48 +320,6 @@ Use the built-in search playground to verify retrieval quality — tweak
 hybrid/vector/keyword modes and thresholds — before wiring the KB to the agent.
 
 ![Knowledge Base search playground](media/kb_search_test.png)
-
-## Observability
-
-Every LangGraph execution (from the Chainlit UI, eval runs, or direct
-invocation) is traced to the orq.ai Studio. The full graph tree is captured —
-nodes, LLM calls, tool executions, and Knowledge Base retrievals — with token
-usage and cost per step.
-
-Two backends are shipped side by side: the `orq_ai_sdk.langchain` callback
-handler (default, recommended for new LangGraph apps) and an OpenTelemetry
-exporter (kept as educational reference). Switch with `ORQ_TRACING_BACKEND` in
-`.env`. See [LANGGRAPH-INTEGRATION.md](LANGGRAPH-INTEGRATION.md) for the
-tradeoffs and [`src/assistant/tracing.py`](src/assistant/tracing.py) for the
-dispatcher.
-
-### Project dashboard
-
-The Studio's project dashboard rolls everything up: total requests, cost,
-P95 latency, and the per-model + per-deployment breakdown across all
-traces from this agent.
-
-![Project dashboard with cost + latency overview](media/project_dashboard.png)
-
-### Trace tree view
-
-Drill into a single run to inspect inputs, outputs, token usage, and cost at
-every step of the LangGraph execution.
-
-![Trace details view](media/trace_details_food_demo.png)
-
-### Timeline view
-
-View execution as a timeline to spot bottlenecks and measure step durations.
-
-![Trace timeline view](media/trace_timeline_food_demo.png)
-
-### Thread view
-
-Follow the conversation as a message thread to review how the agent reasoned
-through the problem.
-
-![Trace thread view](media/trace_thread_food_demo.png)
 
 ## Tests, Continuous Integration and Evals
 
