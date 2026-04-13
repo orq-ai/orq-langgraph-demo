@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from assistant.prompts import SYSTEM_PROMPT  # noqa: E402
 from core.settings import settings  # noqa: E402
 
-load_dotenv()
+load_dotenv(override=True)
 
 API_BASE = "https://api.orq.ai/v2"
 

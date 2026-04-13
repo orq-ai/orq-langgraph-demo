@@ -31,7 +31,7 @@ import sys
 from dotenv import load_dotenv
 
 # Load env and set up OTEL tracing BEFORE importing langchain/evaluatorq
-load_dotenv()
+load_dotenv(override=True)
 
 # Make src/ importable (the @job closure in _shared.py imports assistant.*)
 _SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))

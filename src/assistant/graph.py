@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Literal, cast
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     # dotenv not available, environment variables should be set directly
     pass
