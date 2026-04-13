@@ -230,6 +230,8 @@ LangGraph Studio should automatically open in your browser. From there
 you can step through the graph node-by-node, inspect state at each
 checkpoint, and replay any historical thread.
 
+![LangGraph Studio running the Hybrid Data Agent](media/langgraph_studio.png)
+
 ### Option B: Docker
 
 Docker is useful once the workspace is bootstrapped and data is ingested.
