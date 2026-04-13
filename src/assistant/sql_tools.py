@@ -35,9 +35,7 @@ Parameters:
 - city: Optional city filter (e.g., "Berlin", "Milan", "Paris")
 - limit: Maximum number of results (default: 20)"""
 )
-def get_orders_by_dish(
-    dish_name: str, year: int = 2024, city: str = None, limit: int = 20
-) -> str:
+def get_orders_by_dish(dish_name: str, year: int = 2024, city: str = None, limit: int = 20) -> str:
     """Get monthly orders data for a specific dish."""
     params = QueryParameters(dish_name=dish_name, year=year, city=city, limit=limit)
     logger.info(f"Getting orders for dish: {dish_name}, year: {year}")

@@ -136,9 +136,7 @@ def _inline(text: str) -> str:
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = _BOLD_RE.sub(r"<b>\1</b>", text)
     text = _ITALIC_RE.sub(r"<i>\1</i>", text)
-    text = _INLINE_CODE_RE.sub(
-        r'<font face="Courier" size="9">\1</font>', text
-    )
+    text = _INLINE_CODE_RE.sub(r'<font face="Courier" size="9">\1</font>', text)
     return text
 
 
@@ -170,11 +168,9 @@ def _build_flowables(md: str) -> List:
                 code_lines.append(lines[i])
                 i += 1
             i += 1  # skip closing fence
-            code_html = (
-                "<br/>".join(
-                    line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    for line in code_lines
-                )
+            code_html = "<br/>".join(
+                line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                for line in code_lines
             )
             flowables.append(Paragraph(code_html, _CODE))
             continue
@@ -258,10 +254,7 @@ def _build_flowables(md: str) -> List:
         para_lines: List[str] = []
         while i < n:
             peek = lines[i].strip()
-            if (
-                peek == ""
-                or peek.startswith(("#", "- ", "* ", "> ", "```", "---", "|"))
-            ):
+            if peek == "" or peek.startswith(("#", "- ", "* ", "> ", "```", "---", "|")):
                 break
             para_lines.append(lines[i].strip())
             i += 1

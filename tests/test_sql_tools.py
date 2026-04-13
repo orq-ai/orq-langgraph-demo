@@ -155,9 +155,7 @@ class TestSQLTools:
         """Test get_top_cities_by_orders tool."""
         mock_executor.execute_query.return_value = "Mock top cities data"
 
-        result = get_top_cities_by_orders.invoke(
-            {"year": 2024, "cuisine": "Italian", "limit": 8}
-        )
+        result = get_top_cities_by_orders.invoke({"year": 2024, "cuisine": "Italian", "limit": 8})
 
         mock_executor.execute_query.assert_called_once()
         call_args = mock_executor.execute_query.call_args
@@ -174,9 +172,7 @@ class TestSQLTools:
         """Test get_cuisine_order_trends tool."""
         mock_executor.execute_query.return_value = "Mock cuisine trends data"
 
-        result = get_cuisine_order_trends.invoke(
-            {"cuisine": "Japanese", "year": 2024, "limit": 12}
-        )
+        result = get_cuisine_order_trends.invoke({"cuisine": "Japanese", "year": 2024, "limit": 12})
 
         mock_executor.execute_query.assert_called_once()
         call_args = mock_executor.execute_query.call_args
