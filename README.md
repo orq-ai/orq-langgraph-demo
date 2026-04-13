@@ -203,12 +203,22 @@ make ingest-data
 make run
 ```
 Visit `http://localhost:8000` to chat with the assistant. The welcome
-screen shows three starter prompts (one each for SQL, document, and
-mixed queries). The agent streams its tool calls inline as the response
-comes in, and the answer is grounded in the retrieved KB chunks with
-explicit `Sources:` at the bottom of every response:
+screen shows three starter prompts — one each for SQL-only,
+document-only, and mixed (hybrid) queries:
 
-![Hybrid Data Agent — refund policy query in Chainlit](media/chainlit_food_demo.png)
+![Hybrid Data Agent — Chainlit welcome screen with food starters](media/chainlit_home_food.png)
+
+Click any starter (or type your own question) and the agent streams its
+tool calls inline as the response comes in. The example below shows the
+**mixed** starter — *"How is Margherita Pizza performing in sales for
+2024 and what allergens does it contain?"* — combining a SQL query
+against `fact_orders` with a Knowledge Base search across the menu and
+food-safety policy. The answer renders a city-by-city sales table from
+the SQL tool, the allergen text from the Menu Book, and an inline PDF
+preview of `food_safety_and_hygiene_policy.pdf` opened to the relevant
+page. Citation tags at the bottom link each claim back to its source:
+
+![Hybrid Data Agent — mixed Margherita query with PDF preview](media/chainlit_food_demo.png)
 
 Every node, tool call, and LLM round-trip is also captured in the
 orq.ai Studio Traces tab so you can drill into inputs / outputs /
