@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from assistant.sql_schemas import QueryParameters
 from assistant.sql_tools import (
-    INDIVIDUAL_SQL_TOOLS,
+    SQL_TOOLS,
     compare_models_by_brand,
     get_powertrain_analysis,
     get_powertrain_sales_trends,
@@ -202,7 +202,7 @@ class TestSQLTools:
             assert params.limit == 20  # default
 
     def test_individual_sql_tools_list(self):
-        """Test that INDIVIDUAL_SQL_TOOLS contains all expected tools."""
+        """Test that SQL_TOOLS contains all expected tools."""
         expected_tools = [
             get_sales_by_model,
             get_sales_by_country,
@@ -215,7 +215,7 @@ class TestSQLTools:
             get_powertrain_sales_trends,
         ]
 
-        assert len(INDIVIDUAL_SQL_TOOLS) == len(expected_tools)
+        assert len(SQL_TOOLS) == len(expected_tools)
 
         for tool in expected_tools:
-            assert tool in INDIVIDUAL_SQL_TOOLS
+            assert tool in SQL_TOOLS

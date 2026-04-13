@@ -5,12 +5,10 @@ import os
 from pathlib import Path
 from typing import Dict, List, Union
 
-from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 
-from assistant.models import SearchResult
 
 def get_message_text(msg: BaseMessage) -> str:
     """Get the text content of a message."""
@@ -22,28 +20,6 @@ def get_message_text(msg: BaseMessage) -> str:
     else:
         txts = [c if isinstance(c, str) else (c.get("text") or "") for c in content]
         return "".join(txts).strip()
-
-
-def convert_search_result_to_document(search_result: SearchResult, tool_name: str) -> Document:
-    """Convert a SearchResult object to a Document object.
-
-    Args:
-        search_result (SearchResult): The search result to convert.
-        tool_name (str): The name of the tool that generated this result.
-
-    Returns:
-        Document: A Document object with the search result content and metadata.
-    """
-    return Document(
-        page_content=search_result.content,
-        metadata={
-            "filename": search_result.filename,
-            "page": search_result.page,
-            "chunk_index": search_result.chunk_index,
-            "relevance_score": search_result.relevance_score,
-            "tool_used": tool_name,
-        },
-    )
 
 
 def load_starters_from_csv(csv_path: Union[Path, str]) -> List[Dict[str, str]]:

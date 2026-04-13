@@ -19,78 +19,92 @@ from assistant.tracing import setup_tracing
 
 setup_tracing()
 
-import chainlit as cl
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
+import chainlit as cl  # noqa: E402
+from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
+from langchain_core.runnables import RunnableConfig  # noqa: E402
 
-from assistant import graph as agent
-from assistant.context import Context
-from assistant.utils import load_starters_from_csv
-from core.settings import settings
+from assistant import graph as agent  # noqa: E402
+from assistant.context import Context  # noqa: E402
+from assistant.utils import load_starters_from_csv  # noqa: E402
+from core.settings import settings  # noqa: E402
 
-# Set up logging
+# Noisy third-party loggers (httpx, openai, langchain_core) are quieted by
+# setup_tracing() in assistant/tracing.py so every entry point inherits the
+# same clean defaults.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Suppress noisy HTTP and tracing logs for cleaner output
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("openai").setLevel(logging.WARNING)
-logging.getLogger("openai._base_client").setLevel(logging.WARNING)
-# Suppress LangchainTracer serialization warnings (non-fatal, traces still flow via OTEL)
-logging.getLogger("langchain_core.callbacks.manager").setLevel(logging.ERROR)
 
-# System prompts are now centralized in prompts.py
+# Crisp ready banner. Chainlit prints its own startup chatter (watch mode,
+# port binding, translation loading) after this — the banner gives the user
+# a clean anchor in the terminal before that noise lands.
+print("\n" + "─" * 60)
+print("  Hybrid Data Agent — LangGraph flow")
+print("  Ready → http://localhost:8000")
+print("─" * 60 + "\n")
 
 
-def create_pdf_elements_from_retrieved_docs(retrieved_documents, docs_dir):
-    """Chainlit has a special primitive for PDF links, This creates the links based on the retrieved documents saved in the state"""
+def _extract_search_results_from_messages(messages):
+    """Walk the graph output messages and pull SearchResult artifacts.
+
+    The KB tools (`search_documents` / `search_in_document`) use LangChain's
+    `response_format="content_and_artifact"`, so each ToolMessage they produce
+    has a `.artifact` attribute holding the list of structured SearchResult
+    objects (filename, page, chunk, score). We prefer this over re-parsing
+    the string content the LLM sees.
+    """
+    from assistant.models import SearchResult
+
+    search_results = []
+    for msg in messages:
+        if getattr(msg, "name", None) not in ("search_documents", "search_in_document"):
+            continue
+        artifact = getattr(msg, "artifact", None)
+        if isinstance(artifact, list):
+            search_results.extend(a for a in artifact if isinstance(a, SearchResult))
+    return search_results
+
+
+def create_pdf_elements_from_search_results(search_results, docs_dir):
+    """Build Chainlit PDF elements from the SearchResult artifacts emitted by
+    the KB tools. Deduped by (filename, page)."""
     import chainlit as cl
-    from langchain_core.documents import Document
 
     pdf_elements = []
-    processed_files = set()  # Track to avoid duplicates
+    processed_files = set()
 
-    for doc in retrieved_documents:
-        if isinstance(doc, Document):
-            metadata = doc.metadata
-            filename = metadata.get("filename", "")
-            page = metadata.get("page", 0)
+    for result in search_results:
+        filename = result.filename
+        page = result.page
 
-            if not filename.endswith(".pdf"):
-                continue
+        if not filename.endswith(".pdf"):
+            continue
 
-            # Create a unique key for this file-page combination
-            key = f"{filename}_{page}"
-            if key in processed_files:
-                continue
+        key = f"{filename}_{page}"
+        if key in processed_files:
+            continue
 
-            # Find the PDF file
-            pdf_path = docs_dir / filename
-            if not pdf_path.exists():
-                # Try case-insensitive search
-                for file_path in docs_dir.glob("*.pdf"):
-                    if file_path.name.lower() == filename.lower():
-                        pdf_path = file_path
-                        break
+        pdf_path = docs_dir / filename
+        if not pdf_path.exists():
+            # Try case-insensitive search
+            for file_path in docs_dir.glob("*.pdf"):
+                if file_path.name.lower() == filename.lower():
+                    pdf_path = file_path
+                    break
 
-            if pdf_path.exists():
-                try:
-                    # Create a display name for the PDF element
-                    display_name = f"{filename.replace('.pdf', '')} (Page {page})"
+        if not pdf_path.exists():
+            logger.warning(f"Could not find PDF file: {filename}")
+            continue
 
-                    # Chainlit pdf link
-                    pdf_element = cl.Pdf(
-                        name=display_name, display="side", path=str(pdf_path), page=page
-                    )
-                    pdf_elements.append(pdf_element)
-                    processed_files.add(key)
+        try:
+            display_name = f"{filename.replace('.pdf', '')} (Page {page})"
+            pdf_element = cl.Pdf(name=display_name, display="side", path=str(pdf_path), page=page)
+            pdf_elements.append(pdf_element)
+            processed_files.add(key)
+            logger.info(f"Citing document source: {filename}, page {page}")
 
-                    logger.info(f"Created PDF element from retrieved doc: {filename}, page {page}")
-
-                except Exception as e:
-                    logger.error(f"Failed to create PDF element for {filename}: {e}")
-            else:
-                logger.warning(f"Could not find PDF file: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to create PDF element for {filename}: {e}")
 
     return pdf_elements
 
@@ -180,8 +194,11 @@ async def on_message(message: cl.Message):
     # Keep track of the assistant's response to add to history later
     assistant_response_content = ""
 
-    # Track retrieved documents as we stream
-    retrieved_documents = []
+    # Latest message list from the graph, captured from the `values` stream.
+    # At the end of the run this holds every message produced, including the
+    # ToolMessages whose `.artifact` fields carry the SearchResult structures
+    # we need for the PDF previewer.
+    latest_messages = []
 
     # Stream messages and state updates from the graph
     async for chunk in agent.astream(
@@ -190,14 +207,12 @@ async def on_message(message: cl.Message):
         config=RunnableConfig(callbacks=[cb], **config),
         context=context,
     ):
-        # Handle message streaming
         if isinstance(chunk, tuple) and len(chunk) == 2:
             stream_type, content = chunk
 
             if stream_type == "messages":
                 msg, metadata = content
-                # Stream tokens from final response nodes
-                # We are just interested in the final response nodes to stream the tokens
+                # Stream tokens from the final-response nodes only.
                 if (
                     msg.content
                     and not isinstance(msg, HumanMessage)
@@ -208,32 +223,27 @@ async def on_message(message: cl.Message):
                     assistant_response_content += msg.content
 
             elif stream_type == "values":
-                # Capture state updates, particularly retrieved_documents.
-                # We are going to use this to create the PDF links
-                # Important: We are showing all the documents that were retrieved. It doesn't mean that all of them are relevant.
-                #   Due to latency and for the sake of simplicity we are showing them here to demonstrate the feature.
-                #   Ideally we would have a relevancy assessment or reranker and filter out those documents that are not relevant.
-
+                # Snapshot of the full state after each superstep. We only
+                # care about messages — the last snapshot wins.
                 state_update = content
-                if "retrieved_documents" in state_update:
-                    retrieved_documents = state_update["retrieved_documents"]
+                if "messages" in state_update:
+                    latest_messages = state_update["messages"]
 
     # Send the streamed response
     await final_answer.send()
 
-    # Process retrieved documents to create PDF elements
-    if retrieved_documents:
-        logger.info(f"Found {len(retrieved_documents)} retrieved documents in state")
+    # Build PDF previews from the KB tool artifacts. We show everything the
+    # tools returned — not a relevance-filtered subset — to keep the demo
+    # simple. A production UI would apply a reranker / threshold here.
+    search_results = _extract_search_results_from_messages(latest_messages)
+    if search_results:
+        logger.info(f"Found {len(search_results)} KB hits in tool artifacts")
 
-        # Get the documents directory path - use public for web deployments
-        # Important:By default Chainlit serves the files under the public directory as static files.
-        # Good for a prototype but not for production environment.
-        # Ideally this would be server with something like blobstorage or s3 bucket with proper access control and permissions.
-        # More requirements constraints are necessary to consider what would be the best approach for production environment.
+        # Chainlit serves files under `public/` as static assets. Fine for a
+        # prototype; production would use blob storage + auth'd URLs.
         docs_dir = Path(__file__).parent.parent / "public" / "docs"
 
-        # Create PDF elements from retrieved documents (no text parsing needed!)
-        pdf_elements = create_pdf_elements_from_retrieved_docs(retrieved_documents, docs_dir)
+        pdf_elements = create_pdf_elements_from_search_results(search_results, docs_dir)
 
         if pdf_elements:
             logger.info(f"Created {len(pdf_elements)} PDF elements from retrieved documents")

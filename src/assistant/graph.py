@@ -21,17 +21,19 @@ except ImportError:
     # dotenv not available, environment variables should be set directly
     pass
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
 
 from assistant.context import Context
-from assistant.guardrails import GuardrailsOutput, OrqSafetyGuardrail, SafetyAssessment
-from assistant.models import SearchResult
+from assistant.guardrails import OrqSafetyGuardrail, SafetyAssessment
+from assistant.kb_tools import KB_TOOLS
+from assistant.sql_tools import SQL_TOOLS
 from assistant.state import InputState, Router, State
-from assistant.tools import TOOLS, search_documents, search_in_document
-from assistant.utils import convert_search_result_to_document, load_chat_model
+from assistant.utils import load_chat_model
+
+TOOLS = [*KB_TOOLS, *SQL_TOOLS]
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +61,11 @@ async def call_model(state: State, runtime: Runtime[Context]) -> Dict[str, List[
     # Get the model's response
     response = cast(
         AIMessage,
-        await model.ainvoke([{"role": "system", "content": system_message}, *state.messages]),
+        await model.ainvoke([{"role": "system", "content": system_message}, *state["messages"]]),
     )
 
     # Handle the case when it's the last step and the model still wants to use a tool
-    if state.is_last_step and response.tool_calls:
+    if state.get("is_last_step") and response.tool_calls:
         return {
             "messages": [
                 AIMessage(
@@ -77,9 +79,10 @@ async def call_model(state: State, runtime: Runtime[Context]) -> Dict[str, List[
     return {"messages": [response]}
 
 
-def format_safety_message(safety: GuardrailsOutput) -> AIMessage:
+def format_safety_message(safety: Dict[str, Any]) -> AIMessage:
     """Format a default message when content is flagged as unsafe."""
-    content = f"This conversation was flagged for unsafe content due the following reasons: {', '.join(safety.unsafe_categories)}"
+    categories = safety.get("unsafe_categories") or []
+    content = f"This conversation was flagged for unsafe content due the following reasons: {', '.join(categories)}"
     return AIMessage(content=content)
 
 
@@ -88,16 +91,19 @@ async def guard_input(state: State, runtime: Runtime[Context]) -> Dict[str, Any]
     guardrail = OrqSafetyGuardrail()
 
     # Get the last user message
-    user_messages = [msg.content for msg in state.messages if hasattr(msg, "content")]
+    user_messages = [msg.content for msg in state["messages"] if hasattr(msg, "content")]
     input_text = " ".join(user_messages) if user_messages else ""
 
     safety_output = await guardrail.ainvoke(input_text)
-    return {"safety": safety_output}
+    # Serialize to a JSON-safe dict so LangChain's OTEL tracer can render the
+    # span attribute cleanly in the orq.ai Studio (plain Pydantic models fall
+    # back to the `{"lc": 1, "type": "not_implemented", ...}` stub).
+    return {"safety": safety_output.model_dump(mode="json")}
 
 
 async def block_unsafe_content(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
     """Block unsafe content and return a default message."""
-    safety: GuardrailsOutput = state.safety
+    safety = state.get("safety") or {}
     return {"messages": [format_safety_message(safety)]}
 
 
@@ -119,7 +125,7 @@ async def analyze_and_route_query(state: State, runtime: Runtime[Context]) -> Di
     # ignoring tool calling messages
     messages = [{"role": "system", "content": runtime.context.router_system_prompt}]
 
-    for msg in state.messages:
+    for msg in state["messages"]:
         # Ignore ToolMessages as they're not relevant for routing decisions
         if msg.type not in ["tool", "tool_message"]:
             messages.append({"role": msg.type, "content": msg.content})
@@ -148,12 +154,12 @@ async def ask_for_more_info(state: State, runtime: Runtime[Context]) -> Dict[str
     model = load_chat_model(runtime.context.model)
 
     # logic reasoning for the router response gives the context for the clarification questions we need to ask
-    system_prompt = runtime.context.more_info_system_prompt.format(logic=state.router["logic"])
+    system_prompt = runtime.context.more_info_system_prompt.format(logic=state["router"]["logic"])
 
     # ignoring tool calling messages
     messages = [{"role": "system", "content": system_prompt}]
 
-    for msg in state.messages:
+    for msg in state["messages"]:
         # Skip ToolMessages as they're not relevant for clarification requests
         if msg.type not in ["tool", "tool_message"]:
             messages.append({"role": msg.type, "content": msg.content})
@@ -178,12 +184,12 @@ async def respond_to_offtopic_question(state: State, runtime: Runtime[Context]) 
     model = load_chat_model(runtime.context.model)
 
     # get the logic reasoning from the router response
-    system_prompt = runtime.context.general_system_prompt.format(logic=state.router["logic"])
+    system_prompt = runtime.context.general_system_prompt.format(logic=state["router"]["logic"])
 
     # ignoring tool calling messages
     messages = [{"role": "system", "content": system_prompt}]
 
-    for msg in state.messages:
+    for msg in state["messages"]:
         # Skip ToolMessages since they're not relevant for off-topic responses
         if msg.type not in ["tool", "tool_message"]:
             messages.append({"role": msg.type, "content": msg.content})
@@ -207,124 +213,34 @@ def route_query(
     Raises:
         ValueError: If an unknown router type is encountered.
     """
-    if not state.router:
+    router = state.get("router")
+    if not router:
         # If no router classification, default to normal tool flow
         return "call_model"
 
-    router_type = state.router["type"]
+    router_type = router["type"]
 
+    # The user-facing "routed as X" log is emitted by analyze_and_route_query
+    # at INFO. This function only needs to map type → node, so its per-branch
+    # logs stay at DEBUG to avoid doubling up.
     if router_type == "toyota":
-        logger.info("Routing to Toyota tool processing")
+        logger.debug("Routing to tool processing")
         return "call_model"
     elif router_type == "more-info":
-        logger.info("Routing to ask for more info")
+        logger.debug("Routing to ask for more info")
         return "ask_for_more_info"
     elif router_type == "general":
-        logger.info("Routing to off-topic question response")
+        logger.debug("Routing to off-topic question response")
         return "respond_to_offtopic_question"
     else:
         logger.warning(f"Unknown router type {router_type}, defaulting to tool processing")
         return "call_model"
 
 
-async def call_tools(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """Call tools and track executed queries and retrieved documents."""
-
-    # Track executed SQL queries and retrieved documents
-    executed_queries = list(state.executed_sql_queries) if state.executed_sql_queries else []
-    retrieved_docs = list(state.retrieved_documents) if state.retrieved_documents else []
-
-    # Get the last AI message with tool calls
-    last_ai_message = None
-    for msg in reversed(state.messages):
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            last_ai_message = msg
-            break
-
-    if not last_ai_message or not last_ai_message.tool_calls:
-        # Use standard ToolNode if no tool calls to track
-        tool_node = ToolNode(TOOLS)
-        return await tool_node.ainvoke(state)
-
-    # Execute tools and track results
-    tool_messages = []
-
-    for tool_call in last_ai_message.tool_calls:
-        tool_name = tool_call.get("name", "")
-        tool_args = tool_call.get("args", {})
-        tool_id = tool_call.get("id", "")
-
-        try:
-            # Execute the tool directly and capture the result
-            # We are doing this to track the retrieved documents
-            # TODO: This can be simpler. We should have a better way to track the retrieved documents
-
-            if tool_name == "search_documents":
-                tool_result = search_documents.invoke(tool_args)
-
-                # Convert SearchResult objects to Document objects for state tracking
-                for search_result in tool_result:
-                    if isinstance(search_result, SearchResult):
-                        doc = convert_search_result_to_document(search_result, tool_name)
-                        retrieved_docs.append(doc)
-                        logger.info(
-                            f"Tracked document: {search_result.filename} (page {search_result.page})"
-                        )
-
-                # Create tool message with the result
-                tool_message = ToolMessage(
-                    content=str(tool_result), tool_call_id=tool_id, name=tool_name
-                )
-                tool_messages.append(tool_message)
-
-            elif tool_name == "search_in_document":
-                tool_result = search_in_document.invoke(tool_args)
-
-                # Convert SearchResult objects to Document objects for state tracking
-                for search_result in tool_result:
-                    if isinstance(search_result, SearchResult):
-                        doc = convert_search_result_to_document(search_result, tool_name)
-                        retrieved_docs.append(doc)
-                        logger.info(
-                            f"Tracked document: {search_result.filename} (page {search_result.page})"
-                        )
-
-                # Create tool message with the result
-                tool_message = ToolMessage(
-                    content=str(tool_result), tool_call_id=tool_id, name=tool_name
-                )
-                tool_messages.append(tool_message)
-
-            else:
-                # For other tools, use standard execution
-                tool = next((t for t in TOOLS if t.name == tool_name), None)
-                if tool:
-                    tool_result = tool.invoke(tool_args)
-                    tool_message = ToolMessage(
-                        content=str(tool_result), tool_call_id=tool_id, name=tool_name
-                    )
-                    tool_messages.append(tool_message)
-
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}")
-            # Create error message
-            tool_message = ToolMessage(
-                content=f"Error executing {tool_name}: {e!s}", tool_call_id=tool_id, name=tool_name
-            )
-            tool_messages.append(tool_message)
-
-    # Return the tool results along with updated state
-    return {
-        "messages": tool_messages,
-        "executed_sql_queries": executed_queries,
-        "retrieved_documents": retrieved_docs,
-    }
-
-
 def check_safety(state: State) -> Literal["unsafe", "safe"]:
     """Check if the input is safe or unsafe."""
-    safety: GuardrailsOutput = state.safety
-    if safety and safety.safety_assessment == SafetyAssessment.UNSAFE:
+    safety = state.get("safety") or {}
+    if safety.get("safety_assessment") == SafetyAssessment.UNSAFE.value:
         return "unsafe"
     return "safe"
 
@@ -340,7 +256,7 @@ def route_model_output(state: State) -> Literal["__end__", "tools"]:
     Returns:
         str: The name of the next node to call ("__end__" or "tools").
     """
-    last_message = state.messages[-1]
+    last_message = state["messages"][-1]
     if not isinstance(last_message, AIMessage):
         raise ValueError(
             f"Expected AIMessage in output edges, but got {type(last_message).__name__}"
@@ -362,7 +278,11 @@ builder.add_node("analyze_and_route_query", analyze_and_route_query)
 builder.add_node("ask_for_more_info", ask_for_more_info)
 builder.add_node("respond_to_offtopic_question", respond_to_offtopic_question)
 builder.add_node("call_model", call_model)
-builder.add_node("tools", call_tools)
+# ToolNode handles the full tool loop: it dispatches each tool_call to the
+# matching tool in TOOLS, preserves ToolMessage artifacts (from tools that
+# use response_format="content_and_artifact" — see kb_tools.py), and
+# surfaces errors as ToolMessages without crashing the graph.
+builder.add_node("tools", ToolNode(TOOLS))
 builder.add_node("block_unsafe_content", block_unsafe_content)
 
 # Entrypoint is our guardrail usng OpenAI moderation API

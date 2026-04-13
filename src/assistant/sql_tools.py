@@ -241,8 +241,7 @@ def get_powertrain_sales_trends(
     return simple_sql_executor.execute_query("powertrain_trends", params)
 
 
-# List of all individual SQL tools
-INDIVIDUAL_SQL_TOOLS: List[Callable[..., Any]] = [
+SQL_TOOLS: List[Callable[..., Any]] = [
     get_sales_by_model,
     get_sales_by_country,
     get_sales_by_region,

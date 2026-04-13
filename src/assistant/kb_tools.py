@@ -1,12 +1,13 @@
-"""RAG tools for document search and SQL queries.
+"""Knowledge Base tools — semantic document search via orq.ai.
 
-Uses orq.ai Knowledge Base for semantic document search and SQLite for
-structured data queries.
+All tools here talk to the orq.ai Knowledge Base REST API directly via
+`httpx` rather than the SDK, because the installed SDK's search response
+model is out of sync with the API (expects `knowledge_id`/`documents`/`query`
+fields while the API returns `matches`).
 """
 
 import logging
 import os
-import sqlite3
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -16,7 +17,6 @@ from orq_ai_sdk import Orq
 from core.settings import settings
 
 from .models import SearchResult
-from .sql_tools import INDIVIDUAL_SQL_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -44,19 +44,14 @@ def _get_orq_client() -> Optional[Orq]:
         return None
 
     _orq_client = Orq(api_key=api_key)
-    logger.info(f"orq.ai client initialized - KB: {settings.ORQ_KNOWLEDGE_BASE_ID}")
+    logger.debug(f"orq.ai client initialized - KB: {settings.ORQ_KNOWLEDGE_BASE_ID}")
     return _orq_client
 
 
 def _kb_search(query: str, top_k: int) -> List[Dict[str, Any]]:
-    """
-    Call the orq.ai Knowledge Base search REST API directly.
+    """Call the orq.ai Knowledge Base search REST API directly.
 
-    Bypasses the SDK because the installed version's response model is out of
-    sync with the API (expects `knowledge_id`/`documents`/`query` fields,
-    the API returns `matches`).
-
-    Returns a list of match dicts with keys: id, text, metadata, score.
+    Returns a list of match dicts with keys: id, text, metadata, scores.
     """
     api_key = os.environ.get("ORQ_API_KEY")
     url = f"https://api.orq.ai/v2/knowledge/{settings.ORQ_KNOWLEDGE_BASE_ID}/search"
@@ -98,31 +93,20 @@ def _match_to_search_result(match: Dict[str, Any]) -> SearchResult:
     )
 
 
-def _get_sqlite_connection():
-    """Create a new SQLite connection for each request to avoid threading issues.
+def _format_search_results_for_llm(results: List[SearchResult]) -> str:
+    """Render SearchResults as a string the LLM can cite from.
 
-    This function creates a fresh connection for every request to prevent
-    'SQLite objects created in a thread can only be used in that same thread' errors
-    that occur when the same connection is reused across different conversation turns.
+    The full SearchResult objects ride alongside as a ToolMessage artifact
+    (see `response_format="content_and_artifact"` below) so the Chainlit UI
+    can render PDF previews without needing to parse this string.
     """
-    try:
-        # Create a new connection each time to avoid threading issues
-        # check_same_thread=False allows the connection to be used across threads
-        # mode=ro ensures read-only access for safety
-        conn = sqlite3.connect(
-            f"file:{settings.DEFAULT_SQLITE_PATH}?mode=ro",
-            uri=True,
-            check_same_thread=False,
-            timeout=30.0,  # Add timeout to prevent hanging
-        )
-        logger.debug(f"Created new SQLite connection to {settings.DEFAULT_SQLITE_PATH}")
-        return conn
-    except Exception as e:
-        logger.warning(f"Failed to connect to SQLite: {e}")
-        return None
+    if not results:
+        return "No matches."
+    return "\n\n".join(f"[{r.filename} p.{r.page}] {r.content}" for r in results)
 
 
 @tool(
+    response_format="content_and_artifact",
     description="""Use this tool to answer questions about warranty terms, policy clauses, or owner's manual content by searching the document database.
 
 IMPORTANT: When you use this tool to answer a question, you MUST:
@@ -132,25 +116,31 @@ Args:
     query: The search query string
     limit: Maximum number of results to return (default: 10)
 Returns:
-    List of relevant document chunks with metadata including filename and page numbers for citation"""
+    List of relevant document chunks with metadata including filename and page numbers for citation""",
 )
-def search_documents(query: str, limit: int = settings.MAX_SEARCH_RESULTS) -> List[SearchResult]:
+def search_documents(
+    query: str, limit: int = settings.MAX_SEARCH_RESULTS
+) -> tuple[str, List[SearchResult]]:
+    """Returns (llm_visible_content, structured_artifact).
+
+    The artifact rides on the ToolMessage and is consumed by the Chainlit
+    UI to render PDF previews (see chainlit_app.py).
+    """
     if _get_orq_client() is None:
-        return []
+        return "Knowledge base unavailable.", []
     try:
         matches = _kb_search(query, top_k=limit)
         results = [_match_to_search_result(m) for m in matches]
         logger.info(f"orq.ai KB search found {len(results)} results for query: '{query}'")
-        return results
+        return _format_search_results_for_llm(results), results
     except Exception as e:
         logger.error(f"orq.ai KB search error: {e}")
-        return []
+        return f"Search error: {e}", []
 
 
 @tool
 def list_available_documents() -> List[Dict[str, Any]]:
-    """
-    List all available documents in the knowledge base.
+    """List all available documents in the knowledge base.
 
     Returns:
         List of document information including filename and datasource ID.
@@ -179,6 +169,7 @@ def list_available_documents() -> List[Dict[str, Any]]:
 
 
 @tool(
+    response_format="content_and_artifact",
     description="""Search within a specific document for relevant content.
 
 IMPORTANT: When you use this tool to answer a question, you MUST:
@@ -189,11 +180,12 @@ Args:
     query: The search query string
     limit: Maximum number of results to return (default: 3)
 Returns:
-    List of relevant chunks from the specified document with page numbers for citation"""
+    List of relevant chunks from the specified document with page numbers for citation""",
 )
-def search_in_document(filename: str, query: str, limit: int = 3) -> List[SearchResult]:
+def search_in_document(filename: str, query: str, limit: int = 3) -> tuple[str, List[SearchResult]]:
+    """Returns (llm_visible_content, structured_artifact)."""
     if _get_orq_client() is None:
-        return []
+        return "Knowledge base unavailable.", []
     try:
         # Fetch broader results and filter client-side by filename.
         matches = _kb_search(query, top_k=20)
@@ -211,15 +203,14 @@ def search_in_document(filename: str, query: str, limit: int = 3) -> List[Search
         logger.info(
             f"orq.ai KB search found {len(results)} results in {filename} for query: '{query}'"
         )
-        return results
+        return _format_search_results_for_llm(results), results
     except Exception as e:
         logger.error(f"orq.ai KB search error in document {filename}: {e}")
-        return []
+        return f"Search error: {e}", []
 
 
-# Expose tools for LangGraph - UPDATED WITH INDIVIDUAL SQL TOOLS
-TOOLS: List[Callable[..., Any]] = [
+KB_TOOLS: List[Callable[..., Any]] = [
     search_documents,
     list_available_documents,
     search_in_document,
-] + INDIVIDUAL_SQL_TOOLS  # Individual SQL tools for specific query types
+]
