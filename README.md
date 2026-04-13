@@ -176,15 +176,18 @@ make ingest-data
 # Web interface. Runs Chainlit UI locally
 make run
 ```
-Visit `http://localhost:8000` to chat with the assistant.
+Visit `http://localhost:8000` to chat with the assistant. The welcome
+screen shows three starter prompts (one each for SQL, document, and
+mixed queries). The agent streams its tool calls inline as the response
+comes in, and the answer is grounded in the retrieved KB chunks with
+explicit `Sources:` at the bottom of every response:
 
-![Hybrid Data Agent — welcome screen](media/chainlit_home_clean.png)
+![Hybrid Data Agent — refund policy query in Chainlit](media/chainlit_food_demo.png)
 
-The agent exposes its tool calls inline as the response streams in. Every
-node, tool call, and LLM round-trip is also captured in the orq.ai Studio
-Traces tab so you can drill into inputs/outputs/cost/latency at every step
-(see the Observability section below).
-
+Every node, tool call, and LLM round-trip is also captured in the
+orq.ai Studio Traces tab so you can drill into inputs / outputs /
+cost / latency at every step (see the [Observability](#observability)
+section below).
 
 6. **Run the agent using LangGraph Studio**
 
@@ -193,9 +196,9 @@ Traces tab so you can drill into inputs/outputs/cost/latency at every step
 make dev
 ```
 
-LangGraph Studio should automatically open in your browser.
-
-![LangGraph Studio Development](media/studio_dev.png)
+LangGraph Studio should automatically open in your browser. From there
+you can step through the graph node-by-node, inspect state at each
+checkpoint, and replay any historical thread.
 
 ### Option B: Docker
 
