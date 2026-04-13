@@ -24,6 +24,7 @@ Requires in the environment (via .env or shell):
 
 import json
 import os
+import uuid
 from pathlib import Path
 import re
 import sys
@@ -227,8 +228,17 @@ def _post(api_key: str, path: str, payload: Any) -> httpx.Response:
     )
 
 
+def _delete(api_key: str, path: str) -> httpx.Response:
+    return httpx.delete(f"{API_BASE}{path}", headers=_headers(api_key), timeout=30.0)
+
+
 def _id(obj: Dict[str, Any]) -> Optional[str]:
     return obj.get("_id") or obj.get("id")
+
+
+def _path_project(item: Dict[str, Any]) -> str:
+    """First element of an orq.ai `path` field — the project (or folder, for project-scoped keys)."""
+    return (item.get("path") or "").split("/", 1)[0]
 
 
 def _paginate(api_key: str, path: str, match_fn) -> Optional[Dict[str, Any]]:
@@ -259,6 +269,55 @@ def _paginate(api_key: str, path: str, match_fn) -> Optional[Dict[str, Any]]:
             return None
         if page > 50:  # safety cap: 50*50=2500 items
             return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Preflight
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def preflight_project_routing(api_key: str, project_name: str) -> None:
+    """Verify that resources created with `path=project_name` actually land under that project.
+
+    Creates a throwaway dataset, reads back its stored path, then deletes it.
+    Fails loudly if the returned path's first element doesn't match — this
+    usually means ORQ_API_KEY is scoped to a different project than
+    ORQ_PROJECT_NAME, so orq.ai silently reinterprets `path` as a folder name
+    inside the key's bound project.
+    """
+    canary_name = f"__orq_preflight_{uuid.uuid4().hex[:8]}"
+    print(f"\n[preflight] Verifying '{project_name}' routing with canary dataset")
+
+    response = _post(api_key, "/datasets", {"display_name": canary_name, "path": project_name})
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Preflight failed: could not create canary dataset "
+            f"(status {response.status_code}): {response.text}"
+        )
+    canary = response.json()
+    canary_id = _id(canary)
+    stored_project = _path_project(canary)
+
+    try:
+        if stored_project != project_name:
+            raise RuntimeError(
+                f"ORQ_PROJECT_NAME='{project_name}' but resources are landing under "
+                f"'{stored_project or '<empty>'}'.\n"
+                f"\n"
+                f"  This usually means ORQ_API_KEY is a project-scoped key bound to "
+                f"'{stored_project}'.\n"
+                f"  orq.ai silently reinterprets the `path` argument as a folder name "
+                f"inside\n"
+                f"  the bound project, so nothing ends up in '{project_name}'.\n"
+                f"\n"
+                f"  Fix one of:\n"
+                f"    (a) generate a workspace-level API key in orq.ai Studio and put it in ORQ_API_KEY\n"
+                f"    (b) set ORQ_PROJECT_NAME='{stored_project}' in .env to match the key's project"
+            )
+        print(f"  → ok, resources will be created under project '{project_name}'")
+    finally:
+        if canary_id:
+            _delete(api_key, f"/datasets/{canary_id}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -301,7 +360,11 @@ def setup_knowledge_base(api_key: str, path: str) -> str:
     """Find or create the Knowledge Base. Returns its ID."""
     print(f"\n[2/10] Knowledge Base '{KB_KEY}'")
 
-    existing = _paginate(api_key, "/knowledge", lambda kb: kb.get("key") == KB_KEY)
+    existing = _paginate(
+        api_key,
+        "/knowledge",
+        lambda kb: kb.get("key") == KB_KEY and _path_project(kb) == path,
+    )
     if existing:
         kb_id = _id(existing)
         print(f"  → reusing existing KB: {kb_id}")
@@ -363,7 +426,11 @@ def setup_system_prompt(api_key: str, path: str) -> str:
     """Find or create the default system prompt. Returns its ID."""
     print(f"\n[3/10] System prompt '{PROMPT_KEY}'")
 
-    existing = _paginate(api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY)
+    existing = _paginate(
+        api_key,
+        "/prompts",
+        lambda p: p.get("display_name") == PROMPT_KEY and _path_project(p) == path,
+    )
     if existing:
         prompt_id = _id(existing)
         print(f"  → reusing existing prompt: {prompt_id}")
@@ -385,7 +452,9 @@ def setup_system_prompt_variant_b(api_key: str, path: str) -> str:
     print(f"\n[4/10] System prompt variant B '{PROMPT_KEY_VARIANT_B}'")
 
     existing = _paginate(
-        api_key, "/prompts", lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B
+        api_key,
+        "/prompts",
+        lambda p: p.get("display_name") == PROMPT_KEY_VARIANT_B and _path_project(p) == path,
     )
     if existing:
         prompt_id = _id(existing)
@@ -412,7 +481,11 @@ def setup_safety_evaluator(api_key: str, path: str) -> str:
     """Find or create the LLM safety evaluator used as an input guardrail. Returns its ID."""
     print(f"\n[5/10] Safety evaluator '{SAFETY_EVAL_KEY}'")
 
-    existing = _paginate(api_key, "/evaluators", lambda e: e.get("key") == SAFETY_EVAL_KEY)
+    existing = _paginate(
+        api_key,
+        "/evaluators",
+        lambda e: e.get("key") == SAFETY_EVAL_KEY and _path_project(e) == path,
+    )
     if existing:
         eval_id = _id(existing)
         print(f"  → reusing existing safety evaluator: {eval_id}")
@@ -457,7 +530,11 @@ def _create_llm_evaluator(
     iterated on it), PATCH the evaluator in place so the Studio reflects
     the latest version — idempotent and non-destructive.
     """
-    existing = _paginate(api_key, "/evaluators", lambda e: e.get("key") == key)
+    existing = _paginate(
+        api_key,
+        "/evaluators",
+        lambda e: e.get("key") == key and _path_project(e) == path,
+    )
     if existing:
         eval_id = _id(existing)
         if existing.get("prompt") == prompt:
@@ -539,7 +616,9 @@ def setup_source_citations_evaluator(api_key: str, path: str) -> str:
     print(f"\n[6/10] Source citations evaluator '{SOURCE_CITATIONS_EVAL_KEY}'")
 
     existing = _paginate(
-        api_key, "/evaluators", lambda e: e.get("key") == SOURCE_CITATIONS_EVAL_KEY
+        api_key,
+        "/evaluators",
+        lambda e: e.get("key") == SOURCE_CITATIONS_EVAL_KEY and _path_project(e) == path,
     )
     if existing:
         if existing.get("type") == "llm_eval":
@@ -583,7 +662,11 @@ def setup_managed_agent(api_key: str, path: str, kb_id: str) -> str:
 
     # Agents list endpoint returns data at top-level or under "data" depending
     # on workspace. Use the paginator like other lookups.
-    existing = _paginate(api_key, "/agents", lambda a: a.get("key") == AGENT_KEY)
+    existing = _paginate(
+        api_key,
+        "/agents",
+        lambda a: a.get("key") == AGENT_KEY and _path_project(a) == path,
+    )
     if existing:
         agent_id = _id(existing)
         print(f"  → reusing existing agent: {agent_id}")
@@ -652,7 +735,11 @@ def setup_dataset(api_key: str, path: str) -> str:
     """Find or create the evaluation dataset. Returns its ID."""
     print(f"\n[10/10] Evaluation dataset '{DATASET_KEY}'")
 
-    existing = _paginate(api_key, "/datasets", lambda d: d.get("display_name") == DATASET_KEY)
+    existing = _paginate(
+        api_key,
+        "/datasets",
+        lambda d: d.get("display_name") == DATASET_KEY and _path_project(d) == path,
+    )
     if existing:
         dataset_id = _id(existing)
         count = (existing.get("metadata") or {}).get("datapoints_count", 0)
@@ -699,6 +786,7 @@ def main() -> int:
 
     try:
         setup_project(api_key, project_path)
+        preflight_project_routing(api_key, project_path)
         kb_id = setup_knowledge_base(api_key, project_path)
         prompt_id = setup_system_prompt(api_key, project_path)
         prompt_id_variant_b = setup_system_prompt_variant_b(api_key, project_path)
