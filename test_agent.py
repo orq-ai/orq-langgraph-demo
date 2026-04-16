@@ -27,9 +27,9 @@ def test_agent():
         # Test queries
         test_queries = [
             "What documents are available?",
-            "How do I check engine oil in RAV4?",
-            "What is covered under warranty?",
-            "Tell me about maintenance schedules",
+            "What is our refund policy for late deliveries?",
+            "What allergens are in Margherita Pizza?",
+            "Tell me about food-safety temperature controls",
         ]
 
         for i, query in enumerate(test_queries, 1):
@@ -77,10 +77,10 @@ def interactive_test():
                 if query.lower() == "help":
                     print("\nTest queries you can try:")
                     print("• What documents are available?")
-                    print("• How do I check engine oil?")
-                    print("• What maintenance is required?")
-                    print("• Show me warranty information")
-                    print("• Search RAV4 manual for safety features")
+                    print("• What is our refund policy for late deliveries?")
+                    print("• What allergens are in Margherita Pizza?")
+                    print("• Show me the food-safety temperature controls")
+                    print("• Top-selling dishes in Berlin last month")
                     continue
 
                 if not query:

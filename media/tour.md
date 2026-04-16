@@ -9,7 +9,7 @@ you (or I) record it.
 ## Sequence
 
 1. **Terminal** (1s) — `make run` → Chainlit opens on localhost:8000
-2. **Chainlit UI** (3s) — type "What is the Toyota warranty for Europe?" → press Enter
+2. **Chainlit UI** (3s) — type "What is our refund policy for late deliveries?" → press Enter
 3. **Streaming response** (3s) — agent streams the answer with PDF citations
 4. **Switch to browser tab** (1s) — orq.ai Studio → Traces tab
 5. **Click the newest trace** (2s) — tree view expands showing:
