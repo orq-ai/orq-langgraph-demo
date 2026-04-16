@@ -8,11 +8,10 @@ Studio so prompts can be iterated on without code changes.
 
 from functools import lru_cache
 import logging
-import os
 import re
 from typing import Any
 
-from orq_ai_sdk import Orq
+from core.orq_client import get_orq_client
 
 logger = logging.getLogger(__name__)
 
@@ -220,12 +219,8 @@ def fetch_prompt_by_id(prompt_id: str) -> str:
     prompt don't hit the network. Raises on any error — callers should catch
     and fall back as appropriate.
     """
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("ORQ_API_KEY is not set")
-
-    with Orq(api_key=api_key) as client:
-        response = client.prompts.retrieve(id=prompt_id, timeout_ms=30_000)
+    client = get_orq_client()
+    response = client.prompts.retrieve(id=prompt_id, timeout_ms=30_000)
 
     text = _extract_system_message(response.prompt)
     text = _convert_template_braces(text)

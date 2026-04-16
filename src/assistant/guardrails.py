@@ -1,9 +1,11 @@
+import asyncio
 from enum import Enum
 import logging
 import os
 from typing import Optional
 
-from orq_ai_sdk import Orq
+import httpx
+from orq_ai_sdk.models import APIError
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -57,13 +59,18 @@ class OrqSafetyGuardrail:
             return await self._fallback.ainvoke(text)
 
         try:
-            async with Orq(api_key=self.api_key) as client:
-                result = await client.evals.invoke_async(
-                    id=self.evaluator_id,
-                    query=text,
-                    output=text,
-                    timeout_ms=15_000,
-                )
+            # Import lazily so a missing ORQ_API_KEY at import time doesn't
+            # prevent the module from loading — the fallback path above
+            # handles that case before we get here.
+            from core.orq_client import get_orq_client
+
+            client = get_orq_client()
+            result = await client.evals.invoke_async(
+                id=self.evaluator_id,
+                query=text,
+                output=text,
+                timeout_ms=15_000,
+            )
 
             # Typed discriminated union — llm_evaluator variant carries a
             # nested `.value.value` (the bool/number/str verdict) and
@@ -107,7 +114,11 @@ class OrqSafetyGuardrail:
                 f"explanation={explanation[:200]!r}"
             )
             return GuardrailsOutput(safety_assessment=SafetyAssessment.SAFE)
-        except Exception as e:
+        except (APIError, httpx.TransportError, asyncio.TimeoutError) as e:
+            # Transient/transport failure — fall back to OpenAI moderation so
+            # a flaky orq.ai round-trip doesn't block users. Auth/config
+            # errors (401/404/422) also surface as APIError here, so misconfig
+            # will keep falling back silently; watch the warning log.
             logger.warning(f"orq.ai safety evaluator failed, falling back to OpenAI: {e}")
             fallback = OpenAIModerator()
             return await fallback.ainvoke(text)

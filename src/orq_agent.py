@@ -20,10 +20,11 @@ Required env var:
 import os
 from typing import Optional
 
-from orq_ai_sdk import Orq
 from orq_ai_sdk.models.extendedmessage import ExtendedMessage
 from orq_ai_sdk.models.invokeagentop import InvokeAgentA2ATaskResponse, TaskStatusMessage
 from orq_ai_sdk.models.textpart import TextPart
+
+from core.orq_client import get_orq_client
 
 INVOKE_TIMEOUT_MS = 300_000
 
@@ -65,23 +66,26 @@ async def invoke_managed_agent(message: str, agent_key: Optional[str] = None) ->
     Returns:
         The agent's final text reply as a string.
     """
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("ORQ_API_KEY is not set")
-
     key = agent_key or os.environ.get("ORQ_MANAGED_AGENT_KEY")
     if not key:
         raise RuntimeError("ORQ_MANAGED_AGENT_KEY is not set. Run `make setup-workspace` first.")
 
-    async with Orq(api_key=api_key) as client:
-        response = await client.agents.invoke_async(
-            key=key,
-            message={
-                "role": "user",
-                "parts": [{"kind": "text", "text": message}],
-            },
-            timeout_ms=INVOKE_TIMEOUT_MS,
-        )
+    # `invoke_async` defaults `configuration.blocking=False`, which returns
+    # immediately with only a task ID — no `messages`, no `status.message`.
+    # We want the synchronous A2A semantics of the previous REST call, so
+    # force blocking=True. The method itself is marked @deprecated in
+    # orq_ai_sdk 4.7.x but there's no stable replacement that invokes a
+    # managed agent by key — revisit when the SDK offers one.
+    client = get_orq_client()
+    response = await client.agents.invoke_async(
+        key=key,
+        message={
+            "role": "user",
+            "parts": [{"kind": "text", "text": message}],
+        },
+        configuration={"blocking": True},
+        timeout_ms=INVOKE_TIMEOUT_MS,
+    )
 
     return _extract_reply(response)
 
@@ -96,6 +100,8 @@ def invoke_managed_agent_sync(message: str, agent_key: Optional[str] = None) -> 
 if __name__ == "__main__":
     import sys
 
-    question = sys.argv[1] if len(sys.argv) > 1 else "What is our refund policy for late deliveries?"
+    question = (
+        sys.argv[1] if len(sys.argv) > 1 else "What is our refund policy for late deliveries?"
+    )
     print(f"Q: {question}\n")
     print("A:", invoke_managed_agent_sync(question))

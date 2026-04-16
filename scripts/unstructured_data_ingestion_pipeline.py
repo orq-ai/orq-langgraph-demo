@@ -29,11 +29,11 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
-from orq_ai_sdk import Orq
 
 # Add src directory to path for importing settings
 sys.path.append(str(Path(__file__).parent.parent / "src"))
-from core.settings import settings
+from core.orq_client import get_orq_client  # noqa: E402
+from core.settings import settings  # noqa: E402
 
 load_dotenv(override=True)
 
@@ -83,7 +83,7 @@ class OrqPDFIngestionPipeline:
         self.chunk_overlap = chunk_overlap or settings.CHUNK_OVERLAP
         self.project_path = project_path or settings.ORQ_PROJECT_NAME
 
-        self.client = Orq(api_key=self.orq_api_key)
+        self.client = get_orq_client()
 
         self._setup_text_splitter()
         self.knowledge_base_id = knowledge_base_id or self._create_knowledge_base()

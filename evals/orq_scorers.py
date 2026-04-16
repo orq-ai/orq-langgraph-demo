@@ -7,11 +7,20 @@ truth — tweak the evaluator code/prompt in the Studio, no client-side change
 needed for the eval pipeline to pick it up.
 """
 
+import asyncio
 import os
+from pathlib import Path
+import sys
 from typing import Any, Dict, List
 
 from evaluatorq import EvaluationResult
-from orq_ai_sdk import Orq
+import httpx
+from orq_ai_sdk.models import APIError
+
+# Allow `from core.orq_client import ...` when this module is imported from
+# an eval script that hasn't already extended sys.path.
+sys.path.append(str(Path(__file__).parent.parent / "src"))
+from core.orq_client import get_orq_client  # noqa: E402
 
 
 async def _invoke_orq_evaluator(
@@ -25,19 +34,15 @@ async def _invoke_orq_evaluator(
     typed response object (a discriminated union — for LLM evaluators, an
     `InvokeEvalResponseBodyLLM`).
     """
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("ORQ_API_KEY is not set")
-
-    async with Orq(api_key=api_key) as client:
-        return await client.evals.invoke_async(
-            id=evaluator_id,
-            query=query,
-            output=output,
-            reference=reference,
-            retrievals=retrievals,
-            timeout_ms=60_000,
-        )
+    client = get_orq_client()
+    return await client.evals.invoke_async(
+        id=evaluator_id,
+        query=query,
+        output=output,
+        reference=reference,
+        retrievals=retrievals,
+        timeout_ms=60_000,
+    )
 
 
 def _parse_bool_result(result: Any) -> tuple[bool | None, str]:
@@ -109,7 +114,11 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
                 query=query,
                 retrievals=retrievals,
             )
-        except Exception as e:
+        except (APIError, httpx.TransportError, asyncio.TimeoutError) as e:
+            # Transport/auth/validation errors surface here. Evaluator bugs
+            # (500s from the evaluator's own LLM) and misconfiguration
+            # (404/401) both get marked fail rather than swallowed — let the
+            # eval report show the failure instead of masking it.
             return EvaluationResult(
                 value=False,
                 pass_=False,
@@ -125,10 +134,13 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
             return EvaluationResult(
                 value=False, pass_=False, explanation=explanation or negative_label
             )
+        # Don't dump the full Pydantic response into the eval report —
+        # LLM-evaluator responses can include reflected user input via
+        # `.value.explanation`, and that shows up in published eval reports.
         return EvaluationResult(
             value=False,
             pass_=False,
-            explanation=f"{name}: unexpected evaluator response shape: {result}",
+            explanation=f"{name}: unexpected evaluator response variant: {type(result).__name__}",
         )
 
     scorer.__name__ = f"{name.replace('-', '_')}_scorer"
