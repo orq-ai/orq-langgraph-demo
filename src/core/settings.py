@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = Field(..., description="OpenAI API key for accessing GPT models")
 
     # orq.ai Configuration
+    ORQ_API_BASE: str = Field(
+        default="https://api.orq.ai/v2",
+        description="Base URL for the orq.ai REST API. Override for staging/self-hosted deployments.",
+    )
+
     ORQ_PROJECT_NAME: str = Field(
         default="Default",
         description="orq.ai project name for organizing datasets, experiments, and evaluators",
