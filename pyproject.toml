@@ -1,7 +1,7 @@
 [project]
-name = "basic-reference-rag-implementation"
+name = "orq-langgraph-demo"
 version = "0.1.0"
-description = "AI agent service built with LangGraph, FastAPI and Chainlit"
+description = "LangGraph ↔ orq.ai reference: managed prompts, KB RAG, evaluators, guardrails, tracing"
 readme = "README.md"
 authors = [{ name = "Arian Pasquali", email = "arianpasquali@gmail.com" }]
 classifiers = [
