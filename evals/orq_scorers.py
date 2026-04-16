@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 from evaluatorq import EvaluationResult
 import httpx
-from orq_ai_sdk.models import APIError
+from orq_ai_sdk.models import NoResponseError, OrqError
 
 # Allow `from core.orq_client import ...` when this module is imported from
 # an eval script that hasn't already extended sys.path.
@@ -114,11 +114,15 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
                 query=query,
                 retrievals=retrievals,
             )
-        except (APIError, httpx.TransportError, asyncio.TimeoutError) as e:
-            # Transport/auth/validation errors surface here. Evaluator bugs
-            # (500s from the evaluator's own LLM) and misconfiguration
-            # (404/401) both get marked fail rather than swallowed — let the
-            # eval report show the failure instead of masking it.
+        except (OrqError, NoResponseError, httpx.TransportError, asyncio.TimeoutError) as e:
+            # ``OrqError`` is the SDK superclass covering ``APIError`` plus
+            # the typed per-endpoint error bodies
+            # (``InvokeEvalEvalsResponse{Body,ResponseBody,Response500ResponseBody}``)
+            # — a stale evaluator ID (404) or an evaluator-internal 500 both
+            # land here and mark the row failed instead of blowing up the
+            # whole eval run. Narrow enough that genuine bugs (AttributeError,
+            # etc.) still surface; broad enough to cover every orq.ai-side
+            # failure mode.
             return EvaluationResult(
                 value=False,
                 pass_=False,

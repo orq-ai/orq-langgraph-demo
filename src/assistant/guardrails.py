@@ -5,7 +5,7 @@ import os
 from typing import Optional
 
 import httpx
-from orq_ai_sdk.models import APIError
+from orq_ai_sdk.models import NoResponseError, OrqError
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -114,11 +114,15 @@ class OrqSafetyGuardrail:
                 f"explanation={explanation[:200]!r}"
             )
             return GuardrailsOutput(safety_assessment=SafetyAssessment.SAFE)
-        except (APIError, httpx.TransportError, asyncio.TimeoutError) as e:
-            # Transient/transport failure — fall back to OpenAI moderation so
-            # a flaky orq.ai round-trip doesn't block users. Auth/config
-            # errors (401/404/422) also surface as APIError here, so misconfig
-            # will keep falling back silently; watch the warning log.
+        except (OrqError, NoResponseError, httpx.TransportError, asyncio.TimeoutError) as e:
+            # Fall back to OpenAI moderation on any orq.ai-side failure so
+            # transient issues don't block users. ``OrqError`` is the SDK
+            # superclass — it covers ``APIError`` plus the typed per-endpoint
+            # error bodies (e.g. ``InvokeEvalEvalsResponseResponseBody`` for
+            # 404s when the evaluator ID is stale), so a mis-configured
+            # ``ORQ_SAFETY_EVALUATOR_ID`` falls back cleanly instead of
+            # crashing the user turn. Auth/config bugs are visible in the
+            # warning log so misconfig doesn't hide forever.
             logger.warning(f"orq.ai safety evaluator failed, falling back to OpenAI: {e}")
             fallback = OpenAIModerator()
             return await fallback.ainvoke(text)
