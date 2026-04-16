@@ -88,7 +88,7 @@ Hybrid Data Agent
 ├── call_model (ChatOpenAI)
 │   └── tool_call: search_documents("Margherita Pizza allergens")
 ├── tools (search_documents)
-│   └── httpx POST /v2/knowledge/.../search
+│   └── orq_ai_sdk: client.knowledge.search(knowledge_id=..., query=...)
 └── call_model (final response with citation to the Menu Book)
 ```
 
@@ -107,7 +107,7 @@ hybrid-data-agent-managed
 
 Full execution tree visible in orq.ai Traces under `hybrid-data-agent-managed`.
 No Python code is involved beyond the thin invoker in `src/orq_agent.py`
-which just POSTs to `/v2/agents/{key}/responses`.
+which just calls `client.agents.invoke(...)` on the orq-ai-sdk client.
 
 ---
 

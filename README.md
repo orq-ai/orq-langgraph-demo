@@ -152,6 +152,9 @@ reviewing how the agent reasoned through a problem), see
 - `ORQ_API_KEY` — for orq.ai observability, evaluation, Knowledge Base, and prompts
 - `ORQ_PROJECT_NAME` — orq.ai project where datasets, experiments, prompts, and KBs live
 
+**Optional overrides:**
+- `ORQ_API_BASE` — base URL for the orq.ai REST API (default `https://api.orq.ai/v2`). Override for staging or self-hosted deployments; the AI Router, KB search, prompts, and agent invocations all honour it.
+
 **Bootstrap outputs** (populated by `make setup-workspace` — paste the printed block into `.env`):
 - `ORQ_KNOWLEDGE_BASE_ID` — Knowledge Base that holds the ingested PDFs
 - `ORQ_SYSTEM_PROMPT_ID` — system prompt managed in the Studio (variant A)
@@ -418,9 +421,13 @@ This works because [`src/assistant/utils.py`](src/assistant/utils.py) uses
 return ChatOpenAI(
     model=fully_specified_name,   # e.g. "anthropic/claude-sonnet-4-5"
     api_key=os.getenv("ORQ_API_KEY"),
-    base_url="https://api.orq.ai/v2/router",
+    base_url=f"{settings.ORQ_API_BASE}/router",
 )
 ```
+
+The base URL is driven by the `ORQ_API_BASE` setting (default
+`https://api.orq.ai/v2`). Point it at a staging endpoint by setting
+`ORQ_API_BASE` in `.env` — no code changes needed.
 
 ## Prompt A/B testing
 
