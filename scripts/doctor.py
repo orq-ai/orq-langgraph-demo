@@ -26,7 +26,7 @@ load_dotenv(override=True)
 
 from _term import arrow, bold, fail, ok, section, warn  # noqa: E402
 
-API_BASE = "https://api.orq.ai/v2"
+from core.settings import settings  # noqa: E402
 
 
 class CheckFailed(Exception):
@@ -96,7 +96,7 @@ def check_orq_key() -> Optional[str]:
 
     try:
         r = httpx.get(
-            f"{API_BASE}/projects",
+            f"{settings.ORQ_API_BASE}/projects",
             headers={"Authorization": f"Bearer {key}"},
             timeout=10.0,
         )
@@ -120,7 +120,7 @@ def check_orq_project(api_key: str) -> bool:
 
     try:
         r = httpx.get(
-            f"{API_BASE}/projects",
+            f"{settings.ORQ_API_BASE}/projects",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0,
         )
@@ -151,7 +151,7 @@ def check_knowledge_base(api_key: str) -> bool:
 
     try:
         r = httpx.get(
-            f"{API_BASE}/knowledge/{kb_id}",
+            f"{settings.ORQ_API_BASE}/knowledge/{kb_id}",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0,
         )
@@ -169,7 +169,7 @@ def check_knowledge_base(api_key: str) -> bool:
     # List datasources and count chunks
     try:
         r = httpx.get(
-            f"{API_BASE}/knowledge/{kb_id}/datasources?limit=50",
+            f"{settings.ORQ_API_BASE}/knowledge/{kb_id}/datasources?limit=50",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0,
         )
@@ -202,7 +202,7 @@ def check_system_prompt(api_key: str) -> bool:
 
     try:
         r = httpx.get(
-            f"{API_BASE}/prompts/{prompt_id}",
+            f"{settings.ORQ_API_BASE}/prompts/{prompt_id}",
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0,
         )
@@ -271,13 +271,13 @@ def check_kb_search(api_key: str) -> bool:
 
     try:
         r = httpx.post(
-            f"{API_BASE}/knowledge/{kb_id}/search",
+            f"{settings.ORQ_API_BASE}/knowledge/{kb_id}/search",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json={
-                "query": "Toyota warranty",
+                "query": "refund policy",
                 "retrieval_config": {"type": "hybrid_search", "top_k": 3},
                 "search_options": {"include_metadata": True, "include_scores": True},
             },
@@ -291,7 +291,7 @@ def check_kb_search(api_key: str) -> bool:
 
     if not matches:
         fail(
-            "KB search returned 0 results for 'Toyota warranty'",
+            "KB search returned 0 results for 'refund policy'",
             "chunks may still be embedding — wait ~1 minute or re-run ingest-kb",
         )
         return False
