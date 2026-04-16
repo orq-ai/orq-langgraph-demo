@@ -44,8 +44,9 @@ registers its own `atexit` drain so short-lived scripts (like the eval
 pipeline) don't lose the final batch.
 
 **Implementation in this repo:** `src/assistant/tracing_callback.py` — about
-15 lines. Idempotency check uses the SDK's own `_handler_var` as source of
-truth.
+15 lines. Idempotency is guarded by a module-local `_installed` flag so
+repeated `setup_callback_tracing()` calls are no-ops (the SDK's handler
+ContextVar is an implementation detail we don't reach into).
 
 ## Backend 2: OpenTelemetry exporter
 
