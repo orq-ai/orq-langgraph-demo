@@ -8,6 +8,7 @@ from langchain_core.tools import tool
 from orq_ai_sdk import Orq
 from orq_ai_sdk.models.searchknowledgeop import Matches
 
+from core.orq_client import get_orq_client
 from core.settings import settings
 
 from .models import SearchResult
@@ -15,36 +16,23 @@ from .models import SearchResult
 logger = logging.getLogger(__name__)
 
 
-# Global orq.ai client for lazy initialization
-_orq_client: Optional[Orq] = None
-
-
-def _get_orq_client() -> Optional[Orq]:
-    """Lazy initialization of the orq.ai client."""
-    global _orq_client
-    if _orq_client is not None:
-        return _orq_client
-
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
+def _get_kb_client() -> Optional[Orq]:
+    """Return the shared Orq client, or None if the KB isn't configured."""
+    if not os.environ.get("ORQ_API_KEY"):
         logger.warning("ORQ_API_KEY not set — knowledge base search unavailable")
         return None
-
     if not settings.ORQ_KNOWLEDGE_BASE_ID:
         logger.warning(
             "ORQ_KNOWLEDGE_BASE_ID not set — run the ingestion pipeline first and "
             "set ORQ_KNOWLEDGE_BASE_ID in .env"
         )
         return None
-
-    _orq_client = Orq(api_key=api_key)
-    logger.debug(f"orq.ai client initialized - KB: {settings.ORQ_KNOWLEDGE_BASE_ID}")
-    return _orq_client
+    return get_orq_client()
 
 
 def _kb_search(query: str, top_k: int) -> List[Matches]:
     """Search the orq.ai Knowledge Base via the SDK. Returns typed matches."""
-    client = _get_orq_client()
+    client = _get_kb_client()
     if client is None:
         return []
     response = client.knowledge.search(
@@ -111,7 +99,7 @@ def search_documents(
     The artifact rides on the ToolMessage and is consumed by the Chainlit
     UI to render PDF previews (see chainlit_app.py).
     """
-    if _get_orq_client() is None:
+    if _get_kb_client() is None:
         return "Knowledge base unavailable.", []
     try:
         matches = _kb_search(query, top_k=limit)
@@ -130,7 +118,7 @@ def list_available_documents() -> List[Dict[str, Any]]:
     Returns:
         List of document information including filename and datasource ID.
     """
-    client = _get_orq_client()
+    client = _get_kb_client()
     if not client:
         return []
     try:
@@ -169,7 +157,7 @@ Returns:
 )
 def search_in_document(filename: str, query: str, limit: int = 3) -> tuple[str, List[SearchResult]]:
     """Returns (llm_visible_content, structured_artifact)."""
-    if _get_orq_client() is None:
+    if _get_kb_client() is None:
         return "Knowledge base unavailable.", []
     try:
         # Fetch broader results and filter client-side by filename.

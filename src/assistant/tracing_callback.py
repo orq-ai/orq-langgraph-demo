@@ -18,6 +18,15 @@ import os
 
 from orq_ai_sdk.langchain import setup as orq_langchain_setup
 
+# Module-local idempotency flag. The earlier implementation reached into
+# ``orq_ai_sdk.langchain._global._handler_var`` — the SDK's own source of
+# truth — which is stronger (catches callers that bypass us and call
+# ``orq_langchain_setup`` directly) but pins us to a private import that
+# can move between SDK releases. The trade-off: if another module calls
+# ``orq_langchain_setup`` before us, the handler will be installed twice
+# by different entrypoints. In this repo ``setup_callback_tracing`` is
+# the single entrypoint (called from ``assistant.graph`` and the eval
+# scripts), so process-local tracking is sufficient.
 _installed = False
 
 
