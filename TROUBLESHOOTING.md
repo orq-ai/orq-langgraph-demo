@@ -21,11 +21,16 @@ break is. What it checks (see [`scripts/doctor.py`](scripts/doctor.py)):
 | 6 | System prompt is fetchable | `ORQ_SYSTEM_PROMPT_ID` is stale or the prompt was deleted in the Studio |
 | 7 | A test KB search returns matches | Ingestion finished uploading but chunks are still being embedded — wait ~1 minute and re-run |
 | 8 | SQLite sales DB exists and has rows | You haven't run `make ingest-sql` |
-| 9 | `evaluatorq` is importable | The `evals` dependency group isn't synced — run `uv sync --group evals` |
+| 9 | `evaluatorq` is importable | The `eval` dependency group isn't synced — run `uv sync --group eval` |
 
 If every check passes but you're still seeing weird behaviour, the issues
 below are the ones that are **not** caught by `make doctor` — mostly tracing
 wiring and `.env` parsing edge cases worth knowing about.
+
+> **Pointing at a non-production orq.ai endpoint?** Set `ORQ_API_BASE` in
+> `.env` (default `https://api.orq.ai/v2`). Every call — Router, KB search,
+> prompts, managed-agent invocation, doctor, setup-workspace — routes
+> through that base URL.
 
 Tracing is the one subsystem `make doctor` can't fully validate — spans
 flush asynchronously and symptoms only show up in the orq.ai Studio Traces

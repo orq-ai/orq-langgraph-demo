@@ -10,7 +10,7 @@ Use this module as a drop-in alternative to `assistant.graph.graph`:
 
     from orq_agent import invoke_managed_agent
 
-    reply = await invoke_managed_agent("What is the Toyota warranty for Europe?")
+    reply = await invoke_managed_agent("What is our refund policy for late deliveries?")
     print(reply)
 
 Required env var:
@@ -18,33 +18,41 @@ Required env var:
 """
 
 import os
-from typing import Any, Dict, Optional
+from typing import Optional
 
-import httpx
+from orq_ai_sdk.models.extendedmessage import ExtendedMessage
+from orq_ai_sdk.models.invokeagentop import InvokeAgentA2ATaskResponse, TaskStatusMessage
+from orq_ai_sdk.models.textpart import TextPart
 
-API_BASE = "https://api.orq.ai/v2"
-INVOKE_TIMEOUT_SECONDS = 300.0
+from core.orq_client import get_orq_client
+
+INVOKE_TIMEOUT_MS = 300_000
 
 
-def _extract_text(body: Dict[str, Any]) -> str:
-    """Pull the assistant's final text reply out of the agent response body."""
-    output = body.get("output")
-    if isinstance(output, list) and output:
-        first = output[0]
-        parts = first.get("parts") if isinstance(first, dict) else None
-        if isinstance(parts, list) and parts:
-            text = parts[0].get("text") if isinstance(parts[0], dict) else None
+def _join_text_parts(message: ExtendedMessage | TaskStatusMessage) -> str:
+    """Concatenate the `text` fields of every TextPart on a message."""
+    texts = [part.text for part in message.parts if isinstance(part, TextPart)]
+    return "\n".join(t for t in texts if t)
+
+
+def _extract_reply(response: InvokeAgentA2ATaskResponse) -> str:
+    """Pull the agent's final text reply out of the A2A task response.
+
+    The final reply typically lives on `status.message`; if absent, fall
+    back to the last `role='agent'` entry in `messages`.
+    """
+    if response.status.message is not None:
+        text = _join_text_parts(response.status.message)
+        if text:
+            return text
+
+    for message in reversed(response.messages or []):
+        if message.role == "agent":
+            text = _join_text_parts(message)
             if text:
                 return text
-    # Fall back — some responses expose `content` directly
-    content = body.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("text")]
-        if texts:
-            return "\n".join(texts)
-    return str(body)
+
+    return ""
 
 
 async def invoke_managed_agent(message: str, agent_key: Optional[str] = None) -> str:
@@ -58,36 +66,28 @@ async def invoke_managed_agent(message: str, agent_key: Optional[str] = None) ->
     Returns:
         The agent's final text reply as a string.
     """
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("ORQ_API_KEY is not set")
-
     key = agent_key or os.environ.get("ORQ_MANAGED_AGENT_KEY")
     if not key:
         raise RuntimeError("ORQ_MANAGED_AGENT_KEY is not set. Run `make setup-workspace` first.")
 
-    payload = {
-        "agent_key": key,
-        "background": False,
-        "message": {
+    # `invoke_async` defaults `configuration.blocking=False`, which returns
+    # immediately with only a task ID — no `messages`, no `status.message`.
+    # We want the synchronous A2A semantics of the previous REST call, so
+    # force blocking=True. The method itself is marked @deprecated in
+    # orq_ai_sdk 4.7.x but there's no stable replacement that invokes a
+    # managed agent by key — revisit when the SDK offers one.
+    client = get_orq_client()
+    response = await client.agents.invoke_async(
+        key=key,
+        message={
             "role": "user",
             "parts": [{"kind": "text", "text": message}],
         },
-    }
+        configuration={"blocking": True},
+        timeout_ms=INVOKE_TIMEOUT_MS,
+    )
 
-    async with httpx.AsyncClient(timeout=INVOKE_TIMEOUT_SECONDS) as client:
-        response = await client.post(
-            f"{API_BASE}/agents/{key}/responses",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        body = response.json()
-
-    return _extract_text(body)
+    return _extract_reply(response)
 
 
 def invoke_managed_agent_sync(message: str, agent_key: Optional[str] = None) -> str:
@@ -100,6 +100,8 @@ def invoke_managed_agent_sync(message: str, agent_key: Optional[str] = None) -> 
 if __name__ == "__main__":
     import sys
 
-    question = sys.argv[1] if len(sys.argv) > 1 else "What is the Toyota warranty for Europe?"
+    question = (
+        sys.argv[1] if len(sys.argv) > 1 else "What is our refund policy for late deliveries?"
+    )
     print(f"Q: {question}\n")
     print("A:", invoke_managed_agent_sync(question))

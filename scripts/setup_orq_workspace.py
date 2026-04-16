@@ -24,11 +24,11 @@ Requires in the environment (via .env or shell):
 
 import json
 import os
-import uuid
 from pathlib import Path
 import re
 import sys
 from typing import Any, Dict, List, Optional
+import uuid
 
 from dotenv import load_dotenv
 import httpx
@@ -38,8 +38,6 @@ from assistant.prompts import SYSTEM_PROMPT  # noqa: E402
 from core.settings import settings  # noqa: E402
 
 load_dotenv(override=True)
-
-API_BASE = "https://api.orq.ai/v2"
 
 KB_KEY = "hybrid-data-agent-kb"
 PROMPT_KEY = "hybrid-data-agent-system-prompt"
@@ -216,12 +214,12 @@ def _headers(api_key: str) -> Dict[str, str]:
 
 
 def _get(api_key: str, path: str) -> httpx.Response:
-    return httpx.get(f"{API_BASE}{path}", headers=_headers(api_key), timeout=30.0)
+    return httpx.get(f"{settings.ORQ_API_BASE}{path}", headers=_headers(api_key), timeout=30.0)
 
 
 def _post(api_key: str, path: str, payload: Any) -> httpx.Response:
     return httpx.post(
-        f"{API_BASE}{path}",
+        f"{settings.ORQ_API_BASE}{path}",
         headers=_headers(api_key),
         json=payload,
         timeout=60.0,
@@ -229,7 +227,7 @@ def _post(api_key: str, path: str, payload: Any) -> httpx.Response:
 
 
 def _delete(api_key: str, path: str) -> httpx.Response:
-    return httpx.delete(f"{API_BASE}{path}", headers=_headers(api_key), timeout=30.0)
+    return httpx.delete(f"{settings.ORQ_API_BASE}{path}", headers=_headers(api_key), timeout=30.0)
 
 
 def _id(obj: Dict[str, Any]) -> Optional[str]:
@@ -543,7 +541,7 @@ def _create_llm_evaluator(
 
         # Prompt drift — update in place
         patch_response = httpx.patch(
-            f"{API_BASE}/evaluators/{eval_id}",
+            f"{settings.ORQ_API_BASE}/evaluators/{eval_id}",
             headers=_headers(api_key),
             json={"prompt": prompt},
             timeout=15.0,
@@ -606,7 +604,7 @@ def setup_source_citations_evaluator(api_key: str, path: str) -> str:
 
     Replaced the earlier Python regex evaluator (URL-only check) with an LLM
     judge aligned to the system prompt's "Source Attribution" policy. The LLM
-    can recognize phrases like "According to the Warranty Policy Appendix..."
+    can recognize phrases like "According to the Refund & SLA Policy..."
     that the regex couldn't match.
 
     Migration: if an existing Python evaluator is found under the same key,
@@ -630,7 +628,7 @@ def setup_source_citations_evaluator(api_key: str, path: str) -> str:
         old_id = _id(existing)
         print(f"  → deleting stale python_eval '{SOURCE_CITATIONS_EVAL_KEY}' ({old_id})")
         delete_response = httpx.delete(
-            f"{API_BASE}/evaluators/{old_id}",
+            f"{settings.ORQ_API_BASE}/evaluators/{old_id}",
             headers=_headers(api_key),
             timeout=15.0,
         )

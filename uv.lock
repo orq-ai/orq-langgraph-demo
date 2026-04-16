@@ -244,105 +244,6 @@ wheels = [
 ]
 
 [[package]]
-name = "basic-reference-rag-implementation"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "chainlit" },
-    { name = "langchain-community" },
-    { name = "langchain-core" },
-    { name = "langchain-openai" },
-    { name = "langchain-text-splitters" },
-    { name = "langgraph" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-sdk" },
-    { name = "orq-ai-sdk" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pypdf" },
-    { name = "python-dotenv" },
-    { name = "reportlab" },
-    { name = "tiktoken" },
-]
-
-[package.dev-dependencies]
-client = [
-    { name = "chainlit" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-]
-dev = [
-    { name = "langgraph-cli", extra = ["inmem"] },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-env" },
-    { name = "ruff" },
-]
-eval = [
-    { name = "evaluatorq" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pytest-benchmark" },
-    { name = "ragas" },
-    { name = "seaborn" },
-    { name = "tabulate" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "chainlit", specifier = ">=2.6.3" },
-    { name = "langchain-community", specifier = "~=0.3.16" },
-    { name = "langchain-core", specifier = "~=0.3.33" },
-    { name = "langchain-openai", specifier = "~=0.3.0" },
-    { name = "langchain-text-splitters", specifier = "~=0.3.0" },
-    { name = "langgraph", specifier = "~=0.6.6" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-sdk" },
-    { name = "orq-ai-sdk", specifier = ">=4.7.5" },
-    { name = "pandas", specifier = "~=2.2.3" },
-    { name = "pydantic", specifier = ">=2.11.2,<3" },
-    { name = "pydantic-settings", specifier = ">=2.6.1,<3" },
-    { name = "pypdf", specifier = "~=5.3.0" },
-    { name = "python-dotenv", specifier = "~=1.0.0" },
-    { name = "reportlab", specifier = ">=4.4.10" },
-    { name = "tiktoken", specifier = ">=0.8.0" },
-]
-
-[package.metadata.requires-dev]
-client = [
-    { name = "chainlit", specifier = ">=2.6.3" },
-    { name = "pydantic", specifier = ">=2.11.2,<3" },
-    { name = "python-dotenv", specifier = "~=1.0.0" },
-]
-dev = [
-    { name = "langgraph-cli", extras = ["inmem"] },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-env" },
-    { name = "ruff" },
-]
-eval = [
-    { name = "evaluatorq" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pytest-benchmark" },
-    { name = "ragas", specifier = "~=0.1.0" },
-    { name = "seaborn" },
-    { name = "tabulate" },
-]
-
-[[package]]
 name = "bidict"
 version = "0.23.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3021,6 +2922,105 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/43/3e/e5116f29fe4d1d347a1089d014b02de2bb06f544453b28bc798dabd16b01/orq_ai_sdk-4.7.5.tar.gz", hash = "sha256:fe6f96346bbfc18e66ac24f47c6073aeb682e060795aa06a426ce87b636fe5ec", size = 646296, upload-time = "2026-04-10T07:25:39.487Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/01/f50ef165b43a238b8a2b75b61441d04495535df87df450022f971ddae6c9/orq_ai_sdk-4.7.5-py3-none-any.whl", hash = "sha256:d18b2001f7c109b5c8fd97543a3b4034695af58fa7bd39de83685ef0f34a3dec", size = 819577, upload-time = "2026-04-10T07:25:37.238Z" },
+]
+
+[[package]]
+name = "orq-langgraph-demo"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "chainlit" },
+    { name = "langchain-community" },
+    { name = "langchain-core" },
+    { name = "langchain-openai" },
+    { name = "langchain-text-splitters" },
+    { name = "langgraph" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-sdk" },
+    { name = "orq-ai-sdk" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pypdf" },
+    { name = "python-dotenv" },
+    { name = "reportlab" },
+    { name = "tiktoken" },
+]
+
+[package.dev-dependencies]
+client = [
+    { name = "chainlit" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+]
+dev = [
+    { name = "langgraph-cli", extra = ["inmem"] },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-env" },
+    { name = "ruff" },
+]
+eval = [
+    { name = "evaluatorq" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pytest-benchmark" },
+    { name = "ragas" },
+    { name = "seaborn" },
+    { name = "tabulate" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chainlit", specifier = ">=2.6.3" },
+    { name = "langchain-community", specifier = "~=0.3.16" },
+    { name = "langchain-core", specifier = "~=0.3.33" },
+    { name = "langchain-openai", specifier = "~=0.3.0" },
+    { name = "langchain-text-splitters", specifier = "~=0.3.0" },
+    { name = "langgraph", specifier = "~=0.6.6" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-sdk" },
+    { name = "orq-ai-sdk", specifier = ">=4.7.5,<5" },
+    { name = "pandas", specifier = "~=2.2.3" },
+    { name = "pydantic", specifier = ">=2.11.2,<3" },
+    { name = "pydantic-settings", specifier = ">=2.6.1,<3" },
+    { name = "pypdf", specifier = "~=5.3.0" },
+    { name = "python-dotenv", specifier = "~=1.0.0" },
+    { name = "reportlab", specifier = ">=4.4.10" },
+    { name = "tiktoken", specifier = ">=0.8.0" },
+]
+
+[package.metadata.requires-dev]
+client = [
+    { name = "chainlit", specifier = ">=2.6.3" },
+    { name = "pydantic", specifier = ">=2.11.2,<3" },
+    { name = "python-dotenv", specifier = "~=1.0.0" },
+]
+dev = [
+    { name = "langgraph-cli", extras = ["inmem"] },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-env" },
+    { name = "ruff" },
+]
+eval = [
+    { name = "evaluatorq", specifier = ">=1.2.2,<2" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pytest-benchmark" },
+    { name = "ragas", specifier = "~=0.1.0" },
+    { name = "seaborn" },
+    { name = "tabulate" },
 ]
 
 [[package]]

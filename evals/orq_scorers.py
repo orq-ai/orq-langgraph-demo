@@ -7,13 +7,20 @@ truth — tweak the evaluator code/prompt in the Studio, no client-side change
 needed for the eval pipeline to pick it up.
 """
 
+import asyncio
 import os
+from pathlib import Path
+import sys
 from typing import Any, Dict, List
 
 from evaluatorq import EvaluationResult
 import httpx
+from orq_ai_sdk.models import NoResponseError, OrqError
 
-API_BASE = "https://api.orq.ai/v2"
+# Allow `from core.orq_client import ...` when this module is imported from
+# an eval script that hasn't already extended sys.path.
+sys.path.append(str(Path(__file__).parent.parent / "src"))
+from core.orq_client import get_orq_client  # noqa: E402
 
 
 async def _invoke_orq_evaluator(
@@ -22,45 +29,34 @@ async def _invoke_orq_evaluator(
     query: str = "",
     reference: str = "",
     retrievals: List[str] | None = None,
-) -> Dict[str, Any]:
-    """POST to /v2/evaluators/{id}/invoke and return the parsed JSON body.
-
-    Raises `httpx.HTTPStatusError` on non-2xx responses.
+) -> Any:
+    """Invoke the evaluator via `client.evals.invoke_async` and return the
+    typed response object (a discriminated union — for LLM evaluators, an
+    `InvokeEvalResponseBodyLLM`).
     """
-    api_key = os.environ.get("ORQ_API_KEY")
-    if not api_key:
-        raise RuntimeError("ORQ_API_KEY is not set")
-    payload: Dict[str, Any] = {
-        "output": output,
-        "query": query,
-        "reference": reference,
-    }
-    if retrievals is not None:
-        payload["retrievals"] = retrievals
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{API_BASE}/evaluators/{evaluator_id}/invoke",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
+    client = get_orq_client()
+    return await client.evals.invoke_async(
+        id=evaluator_id,
+        query=query,
+        output=output,
+        reference=reference,
+        retrievals=retrievals,
+        timeout_ms=60_000,
+    )
 
 
-def _parse_bool_result(body: Dict[str, Any]) -> tuple[bool | None, str]:
-    """Normalize the various response shapes the evaluator API returns.
+def _parse_bool_result(result: Any) -> tuple[bool | None, str]:
+    """Normalize the various evaluator response variants to (is_true, explanation).
 
-    Returns (is_true, explanation). `is_true` can be None if the shape is
-    unrecognized.
+    `is_true` is None if the verdict shape is unrecognized.
     """
-    inner = body.get("value") or {}
-    value = inner.get("value") if isinstance(inner, dict) else inner
-    explanation = inner.get("explanation", "") if isinstance(inner, dict) else ""
+    inner = getattr(result, "value", None)
+    # For `llm_evaluator`: `inner` is a typed object with `.value` + `.explanation`.
+    # For `boolean`/`number`/`string`: `inner` itself carries the primitive.
+    value = getattr(inner, "value", inner) if inner is not None else None
+    explanation = getattr(inner, "explanation", "") if inner is not None else ""
+    explanation = explanation or ""
 
-    # Coerce bool / numeric / string → boolean verdict
     if isinstance(value, bool):
         return value, explanation
     if isinstance(value, (int, float)):
@@ -112,20 +108,28 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
                 pass
 
         try:
-            body = await _invoke_orq_evaluator(
+            result = await _invoke_orq_evaluator(
                 evaluator_id,
                 output=response_text,
                 query=query,
                 retrievals=retrievals,
             )
-        except Exception as e:
+        except (OrqError, NoResponseError, httpx.TransportError, asyncio.TimeoutError) as e:
+            # ``OrqError`` is the SDK superclass covering ``APIError`` plus
+            # the typed per-endpoint error bodies
+            # (``InvokeEvalEvalsResponse{Body,ResponseBody,Response500ResponseBody}``)
+            # — a stale evaluator ID (404) or an evaluator-internal 500 both
+            # land here and mark the row failed instead of blowing up the
+            # whole eval run. Narrow enough that genuine bugs (AttributeError,
+            # etc.) still surface; broad enough to cover every orq.ai-side
+            # failure mode.
             return EvaluationResult(
                 value=False,
                 pass_=False,
                 explanation=f"{name} evaluator invocation failed: {e}",
             )
 
-        is_true, explanation = _parse_bool_result(body)
+        is_true, explanation = _parse_bool_result(result)
         if is_true is True:
             return EvaluationResult(
                 value=True, pass_=True, explanation=explanation or positive_label
@@ -134,10 +138,13 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
             return EvaluationResult(
                 value=False, pass_=False, explanation=explanation or negative_label
             )
+        # Don't dump the full Pydantic response into the eval report —
+        # LLM-evaluator responses can include reflected user input via
+        # `.value.explanation`, and that shows up in published eval reports.
         return EvaluationResult(
             value=False,
             pass_=False,
-            explanation=f"{name}: unexpected evaluator response shape: {body}",
+            explanation=f"{name}: unexpected evaluator response variant: {type(result).__name__}",
         )
 
     scorer.__name__ = f"{name.replace('-', '_')}_scorer"

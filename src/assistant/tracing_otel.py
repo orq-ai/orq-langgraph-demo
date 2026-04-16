@@ -17,6 +17,8 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from core.settings import settings
+
 
 def setup_otel_tracing() -> None:
     """Configure the OTEL → orq.ai exporter. Idempotent.
@@ -36,7 +38,7 @@ def setup_otel_tracing() -> None:
     os.environ["LANGSMITH_OTEL_ENABLED"] = "true"
     os.environ["LANGSMITH_TRACING"] = "true"
     os.environ["LANGSMITH_OTEL_ONLY"] = "true"
-    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "https://api.orq.ai/v2/otel"
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"{settings.ORQ_API_BASE}/otel"
     os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Bearer {os.getenv('ORQ_API_KEY')}"
 
     provider = TracerProvider()
