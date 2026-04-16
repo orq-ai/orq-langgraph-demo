@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import warnings
 
 from dotenv import load_dotenv
-import httpx
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
@@ -91,12 +90,7 @@ class OrqPDFIngestionPipeline:
         logger.info(f"Using Knowledge Base ID: {self.knowledge_base_id}")
 
     def _create_knowledge_base(self) -> str:
-        """Find an existing Knowledge Base by key or create a new one.
-
-        Uses raw HTTP because the installed SDK's CreateKnowledgeRequestBody
-        is missing the required `type` field that the API demands.
-        """
-        # First, check if a KB with this key already exists
+        """Find an existing Knowledge Base by key or create a new one."""
         existing_id = self._find_knowledge_base_by_key(self.knowledge_base_key)
         if existing_id:
             logger.info(
@@ -108,31 +102,17 @@ class OrqPDFIngestionPipeline:
             f"Creating Knowledge Base '{self.knowledge_base_key}' "
             f"in project '{self.project_path}' with embedding model '{self.embedding_model}'"
         )
-        headers = {
-            "Authorization": f"Bearer {self.orq_api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        payload = {
-            "key": self.knowledge_base_key,
-            "embedding_model": self.embedding_model,
-            "path": self.project_path,
-            "type": "internal",
-        }
-        response = httpx.post(
-            "https://api.orq.ai/v2/knowledge",
-            headers=headers,
-            json=payload,
-            timeout=30.0,
+        response = self.client.knowledge.create(
+            request={
+                "key": self.knowledge_base_key,
+                "embedding_model": self.embedding_model,
+                "path": self.project_path,
+                "type": "internal",
+            },
         )
-        if response.status_code >= 400:
-            raise RuntimeError(
-                f"Failed to create Knowledge Base (status {response.status_code}): {response.text}"
-            )
-        body = response.json()
-        kb_id = body.get("_id") or body.get("id")
+        kb_id = getattr(response, "id", None) or getattr(response, "_id", None)
         if not kb_id:
-            raise RuntimeError(f"Could not extract KB ID from response: {body}")
+            raise RuntimeError(f"Could not extract KB ID from response: {response}")
         return kb_id
 
     def _find_knowledge_base_by_key(self, key: str) -> Optional[str]:
@@ -254,21 +234,18 @@ class OrqPDFIngestionPipeline:
             }
 
     def _upload_chunks(self, datasource_id: str, chunks: List[Document]) -> None:
-        """
-        Upload chunks to a datasource via REST API.
+        """Upload chunks to a datasource via the SDK."""
 
-        Uses raw HTTP because the SDK's typed CreateChunkMetadata silently
-        strips extra fields — we need to preserve all our custom metadata.
-        """
-
-        # orq.ai metadata values must be primitive (string, number, bool).
-        # Flatten non-primitives to strings.
+        # orq.ai chunk metadata values must be primitive (str, number, bool).
+        # Flatten anything else to str so the typed model accepts it.
         def flatten_value(v: Any) -> Any:
-            if isinstance(v, (str, int, float, bool)) or v is None:
+            if isinstance(v, (str, float, bool)) or v is None:
                 return v
+            if isinstance(v, int):
+                return float(v)
             return str(v)
 
-        payload = [
+        request_body = [
             {
                 "text": chunk.page_content,
                 "metadata": {k: flatten_value(v) for k, v in chunk.metadata.items()},
@@ -276,17 +253,12 @@ class OrqPDFIngestionPipeline:
             for chunk in chunks
         ]
 
-        headers = {
-            "Authorization": f"Bearer {self.orq_api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        url = (
-            f"https://api.orq.ai/v2/knowledge/{self.knowledge_base_id}"
-            f"/datasources/{datasource_id}/chunks"
+        self.client.knowledge.create_chunks(
+            knowledge_id=self.knowledge_base_id,
+            datasource_id=datasource_id,
+            request_body=request_body,
+            timeout_ms=120_000,
         )
-        response = httpx.post(url, headers=headers, json=payload, timeout=120.0)
-        response.raise_for_status()
 
     def ingest_pdf_directory(
         self, folder_path: str, file_patterns: Optional[List[str]] = None
@@ -396,12 +368,6 @@ class OrqPDFIngestionPipeline:
         orq.ai embeds chunks asynchronously after upload, so a fresh ingestion
         needs a brief wait before search can return results. This helper polls
         a single query until it either returns matches or hits the timeout.
-
-        Uses raw HTTP instead of the SDK's `client.knowledge.search()` because
-        the installed SDK's search wrapper is out of sync with the API:
-        - it doesn't pass `retrieval_config.type` (required by the API)
-        - it doesn't pass `search_options.include_metadata/include_scores`
-        - its response model expects `documents` but the API returns `matches`
         """
         import time
 
@@ -413,24 +379,16 @@ class OrqPDFIngestionPipeline:
                 "food safety temperature control",
             ]
 
-        def run_search(query: str) -> List[Dict[str, Any]]:
-            headers = {
-                "Authorization": f"Bearer {self.orq_api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "query": query,
-                "retrieval_config": {"type": "hybrid_search", "top_k": 3},
-                "search_options": {"include_metadata": True, "include_scores": True},
-            }
-            response = httpx.post(
-                f"https://api.orq.ai/v2/knowledge/{self.knowledge_base_id}/search",
-                headers=headers,
-                json=payload,
-                timeout=30.0,
+        def run_search(query: str) -> List[Any]:
+            response = self.client.knowledge.search(
+                knowledge_id=self.knowledge_base_id,
+                query=query,
+                top_k=3,
+                search_type="hybrid_search",
+                search_options={"include_metadata": True, "include_scores": True},
+                timeout_ms=30_000,
             )
-            response.raise_for_status()
-            return response.json().get("matches") or []
+            return response.matches or []
 
         # Wait for chunks to finish embedding. Poll the first query until
         # results come back or we hit the timeout.
@@ -461,8 +419,7 @@ class OrqPDFIngestionPipeline:
                 matches = run_search(query)
                 sample_content = None
                 if matches:
-                    first = matches[0]
-                    text = first.get("text") or ""
+                    text = matches[0].text or ""
                     sample_content = text[:200] + "..." if text else None
 
                 verification_results["search_tests"].append(

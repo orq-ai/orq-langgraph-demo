@@ -3,7 +3,7 @@ import logging
 import os
 from typing import Optional
 
-import httpx
+from orq_ai_sdk import Orq
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -57,22 +57,22 @@ class OrqSafetyGuardrail:
             return await self._fallback.ainvoke(text)
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    f"https://api.orq.ai/v2/evaluators/{self.evaluator_id}/invoke",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"query": text, "output": text},
+            async with Orq(api_key=self.api_key) as client:
+                result = await client.evals.invoke_async(
+                    id=self.evaluator_id,
+                    query=text,
+                    output=text,
+                    timeout_ms=15_000,
                 )
-                response.raise_for_status()
-                body = response.json()
 
-            # Response shape: {"type": "llm_evaluator", "value": {"value": <bool|number|str>, "explanation": "..."}}
-            inner = body.get("value") or {}
-            value = inner.get("value")
-            explanation = inner.get("explanation") or ""
+            # Typed discriminated union — llm_evaluator variant carries a
+            # nested `.value.value` (the bool/number/str verdict) and
+            # `.value.explanation`. Other variants (string, boolean, number,
+            # ...) expose the verdict directly on `.value`.
+            inner = getattr(result, "value", None)
+            value = getattr(inner, "value", inner) if inner is not None else None
+            explanation = getattr(inner, "explanation", "") if inner is not None else ""
+            explanation = explanation or ""
 
             # The LLM evaluator can return different types depending on how
             # the underlying model responded: bool, number (0/1 or similar),

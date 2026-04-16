@@ -11,9 +11,7 @@ import os
 from typing import Any, Dict, List
 
 from evaluatorq import EvaluationResult
-import httpx
-
-API_BASE = "https://api.orq.ai/v2"
+from orq_ai_sdk import Orq
 
 
 async def _invoke_orq_evaluator(
@@ -22,45 +20,38 @@ async def _invoke_orq_evaluator(
     query: str = "",
     reference: str = "",
     retrievals: List[str] | None = None,
-) -> Dict[str, Any]:
-    """POST to /v2/evaluators/{id}/invoke and return the parsed JSON body.
-
-    Raises `httpx.HTTPStatusError` on non-2xx responses.
+) -> Any:
+    """Invoke the evaluator via `client.evals.invoke_async` and return the
+    typed response object (a discriminated union — for LLM evaluators, an
+    `InvokeEvalResponseBodyLLM`).
     """
     api_key = os.environ.get("ORQ_API_KEY")
     if not api_key:
         raise RuntimeError("ORQ_API_KEY is not set")
-    payload: Dict[str, Any] = {
-        "output": output,
-        "query": query,
-        "reference": reference,
-    }
-    if retrievals is not None:
-        payload["retrievals"] = retrievals
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{API_BASE}/evaluators/{evaluator_id}/invoke",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+
+    async with Orq(api_key=api_key) as client:
+        return await client.evals.invoke_async(
+            id=evaluator_id,
+            query=query,
+            output=output,
+            reference=reference,
+            retrievals=retrievals,
+            timeout_ms=60_000,
         )
-        response.raise_for_status()
-        return response.json()
 
 
-def _parse_bool_result(body: Dict[str, Any]) -> tuple[bool | None, str]:
-    """Normalize the various response shapes the evaluator API returns.
+def _parse_bool_result(result: Any) -> tuple[bool | None, str]:
+    """Normalize the various evaluator response variants to (is_true, explanation).
 
-    Returns (is_true, explanation). `is_true` can be None if the shape is
-    unrecognized.
+    `is_true` is None if the verdict shape is unrecognized.
     """
-    inner = body.get("value") or {}
-    value = inner.get("value") if isinstance(inner, dict) else inner
-    explanation = inner.get("explanation", "") if isinstance(inner, dict) else ""
+    inner = getattr(result, "value", None)
+    # For `llm_evaluator`: `inner` is a typed object with `.value` + `.explanation`.
+    # For `boolean`/`number`/`string`: `inner` itself carries the primitive.
+    value = getattr(inner, "value", inner) if inner is not None else None
+    explanation = getattr(inner, "explanation", "") if inner is not None else ""
+    explanation = explanation or ""
 
-    # Coerce bool / numeric / string → boolean verdict
     if isinstance(value, bool):
         return value, explanation
     if isinstance(value, (int, float)):
@@ -112,7 +103,7 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
                 pass
 
         try:
-            body = await _invoke_orq_evaluator(
+            result = await _invoke_orq_evaluator(
                 evaluator_id,
                 output=response_text,
                 query=query,
@@ -125,7 +116,7 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
                 explanation=f"{name} evaluator invocation failed: {e}",
             )
 
-        is_true, explanation = _parse_bool_result(body)
+        is_true, explanation = _parse_bool_result(result)
         if is_true is True:
             return EvaluationResult(
                 value=True, pass_=True, explanation=explanation or positive_label
@@ -137,7 +128,7 @@ def _make_scorer(env_var: str, name: str, positive_label: str, negative_label: s
         return EvaluationResult(
             value=False,
             pass_=False,
-            explanation=f"{name}: unexpected evaluator response shape: {body}",
+            explanation=f"{name}: unexpected evaluator response shape: {result}",
         )
 
     scorer.__name__ = f"{name.replace('-', '_')}_scorer"

@@ -1,18 +1,12 @@
-"""Knowledge Base tools — semantic document search via orq.ai.
-
-All tools here talk to the orq.ai Knowledge Base REST API directly via
-`httpx` rather than the SDK, because the installed SDK's search response
-model is out of sync with the API (expects `knowledge_id`/`documents`/`query`
-fields while the API returns `matches`).
-"""
+"""Knowledge Base tools — semantic document search via orq.ai."""
 
 import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
 
-import httpx
 from langchain_core.tools import tool
 from orq_ai_sdk import Orq
+from orq_ai_sdk.models.searchknowledgeop import Matches
 
 from core.settings import settings
 
@@ -48,48 +42,39 @@ def _get_orq_client() -> Optional[Orq]:
     return _orq_client
 
 
-def _kb_search(query: str, top_k: int) -> List[Dict[str, Any]]:
-    """Call the orq.ai Knowledge Base search REST API directly.
-
-    Returns a list of match dicts with keys: id, text, metadata, scores.
-    """
-    api_key = os.environ.get("ORQ_API_KEY")
-    url = f"https://api.orq.ai/v2/knowledge/{settings.ORQ_KNOWLEDGE_BASE_ID}/search"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    payload = {
-        "query": query,
-        "retrieval_config": {"type": "hybrid_search", "top_k": top_k},
-        "search_options": {"include_metadata": True, "include_scores": True},
-    }
-    response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
-    response.raise_for_status()
-    body = response.json()
-    return body.get("matches") or body.get("documents") or []
-
-
-def _match_to_search_result(match: Dict[str, Any]) -> SearchResult:
-    """Convert a raw KB search match dict to a SearchResult."""
-    metadata = match.get("metadata") or {}
-    scores = match.get("scores") or {}
-    # orq.ai returns scores as {"search_score": ..., "rerank_score": ...}
-    score_value = (
-        scores.get("rerank_score")
-        if scores.get("rerank_score") is not None
-        else scores.get("search_score")
+def _kb_search(query: str, top_k: int) -> List[Matches]:
+    """Search the orq.ai Knowledge Base via the SDK. Returns typed matches."""
+    client = _get_orq_client()
+    if client is None:
+        return []
+    response = client.knowledge.search(
+        knowledge_id=settings.ORQ_KNOWLEDGE_BASE_ID,
+        query=query,
+        top_k=top_k,
+        search_type="hybrid_search",
+        search_options={"include_metadata": True, "include_scores": True},
+        timeout_ms=30_000,
     )
-    if score_value is None:
-        score_value = match.get("score") or 0.0
+    return response.matches or []
+
+
+def _match_to_search_result(match: Matches) -> SearchResult:
+    """Convert a typed KB Matches object to a SearchResult."""
+    metadata = match.metadata or {}
+    # orq.ai returns scores as {"search_score": ..., "rerank_score": ...}; the
+    # typed `Scores` model exposes both as attributes.
+    score_value = None
+    if match.scores is not None:
+        score_value = getattr(match.scores, "rerank_score", None)
+        if score_value is None:
+            score_value = getattr(match.scores, "search_score", None)
     return SearchResult(
         filename=metadata.get("filename") or metadata.get("file_name") or "Unknown",
         page=int(metadata.get("page_number") or 0),
         chunk_index=int(metadata.get("chunk_index") or 0),
-        content=match.get("text") or "",
-        relevance_score=float(score_value),
-        chunk_id=metadata.get("chunk_id") or match.get("id") or "",
+        content=match.text or "",
+        relevance_score=float(score_value or 0.0),
+        chunk_id=metadata.get("chunk_id") or match.id or "",
     )
 
 
@@ -107,7 +92,7 @@ def _format_search_results_for_llm(results: List[SearchResult]) -> str:
 
 @tool(
     response_format="content_and_artifact",
-    description="""Use this tool to answer questions about warranty terms, policy clauses, or owner's manual content by searching the document database.
+    description="""Use this tool to answer questions about refund & SLA policy, menu & allergen information, food-safety rules, or delivery operations by searching the document database.
 
 IMPORTANT: When you use this tool to answer a question, you MUST:
 1. Provide a comprehensive answer based on the retrieved content
@@ -192,7 +177,7 @@ def search_in_document(filename: str, query: str, limit: int = 3) -> tuple[str, 
 
         filtered = []
         for match in matches:
-            match_metadata = match.get("metadata") or {}
+            match_metadata = match.metadata or {}
             doc_filename = match_metadata.get("filename") or match_metadata.get("file_name") or ""
             if filename.lower() in doc_filename.lower() or doc_filename.lower() in filename.lower():
                 filtered.append(match)
