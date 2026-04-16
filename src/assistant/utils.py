@@ -9,6 +9,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 
+from core.settings import settings
+
 
 def get_message_text(msg: BaseMessage) -> str:
     """Get the text content of a message."""
@@ -87,5 +89,5 @@ def load_chat_model(fully_specified_name: str) -> BaseChatModel:
     return ChatOpenAI(
         model=fully_specified_name,
         api_key=os.getenv("ORQ_API_KEY"),
-        base_url="https://api.orq.ai/v2/router",
+        base_url=f"{settings.ORQ_API_BASE}/router",
     )
