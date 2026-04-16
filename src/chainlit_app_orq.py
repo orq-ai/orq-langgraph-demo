@@ -55,8 +55,8 @@ async def set_starters():
         logger.error(f"Error loading starters: {e}")
         return [
             cl.Starter(
-                label="Toyota warranty",
-                message="What is the Toyota warranty for Europe?",
+                label="Refund policy",
+                message="What is our refund policy for late deliveries?",
             ),
         ]
 
@@ -76,9 +76,9 @@ async def start():
             "This agent is configured entirely in the orq.ai Studio — "
             "instructions, tools, and Knowledge Base wiring live there, "
             "not in this repo.\n\n"
-            "Try asking a question about warranties, manuals, or contracts. "
-            "(Sales data queries aren't wired up in this version — use "
-            "`make run` for the LangGraph version that handles both.)"
+            "Try asking a question about refund policy, food safety, allergens, "
+            "or the operations handbook. (Order-data queries aren't wired up in "
+            "this version — use `make run` for the LangGraph version that handles both.)"
         )
     ).send()
 

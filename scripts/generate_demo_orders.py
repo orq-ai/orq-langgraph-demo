@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate the synthetic food-delivery demo dataset.
 
-Emits four CSVs under `data/` that mirror the shape of the legacy Toyota
-dataset (dimension tables + one fact table aggregated at month grain):
+Emits four CSVs under `data/` — dimension tables + one fact table aggregated
+at month grain:
 
     data/DIM_CITY.csv        city_id, city_name, country, region
     data/DIM_DISH.csv        dish_id, dish_name, cuisine, category,

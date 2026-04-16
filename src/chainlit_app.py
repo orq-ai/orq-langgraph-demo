@@ -132,12 +132,12 @@ async def set_starters():
         # Just show something simple if the CSV loading fails
         return [
             cl.Starter(
-                label="Toyota vs Lexus warranty",
-                message="Compare Toyota vs Lexus warranty",
+                label="Refund policy",
+                message="What is our refund policy for late deliveries?",
             ),
             cl.Starter(
-                label="RAV4 sales in Germany in 2024",
-                message="What was the monthly RAV4 sales in Germany in 2024?",
+                label="Margherita orders in Berlin 2024",
+                message="What was the monthly Margherita Pizza order count in Berlin in 2024?",
             ),
         ]
 
