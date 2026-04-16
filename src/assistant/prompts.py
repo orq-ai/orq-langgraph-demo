@@ -10,6 +10,9 @@ from functools import lru_cache
 import logging
 import os
 import re
+from typing import Any
+
+from orq_ai_sdk import Orq
 
 logger = logging.getLogger(__name__)
 
@@ -168,28 +171,34 @@ you with instead?"
 """
 
 
-def _extract_system_message(body: dict) -> str:
-    """Extract the system message text from an orq.ai prompts retrieve response.
+def _content_to_text(content: Any) -> str:
+    """Flatten a message content field (str | list of parts | None) to text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            text = getattr(part, "text", None)
+            if text is None and isinstance(part, dict):
+                text = part.get("text")
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+    return str(content)
 
-    Response shape (from GET /v2/prompts/{id}):
-        body["prompt"]["messages"][i]["role"] == "system"
-        body["prompt"]["messages"][i]["content"]  # str or list of content parts
-    """
-    prompt_block = body.get("prompt") or body.get("prompt_config") or {}
-    messages = prompt_block.get("messages") or []
+
+def _extract_system_message(prompt_block: Any) -> str:
+    """Extract the system message text from an orq.ai prompts retrieve response."""
+    messages = getattr(prompt_block, "messages", None) or []
     for message in messages:
-        if message.get("role") != "system":
+        if getattr(message, "role", None) != "system":
             continue
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-        # Structured content: list of content parts with `text` fields
-        if isinstance(content, list):
-            parts = [p.get("text", "") for p in content if isinstance(p, dict)]
-            joined = "\n".join(p for p in parts if p)
-            if joined:
-                return joined
-        return str(content) if content is not None else ""
+        text = _content_to_text(getattr(message, "content", None))
+        if text:
+            return text
+        return ""
 
     raise ValueError("No system message found in orq.ai prompt response")
 
@@ -210,25 +219,15 @@ def fetch_prompt_by_id(prompt_id: str) -> str:
     Results are cached per-process (per ID) so repeated calls for the same
     prompt don't hit the network. Raises on any error — callers should catch
     and fall back as appropriate.
-
-    Uses raw HTTP because the installed orq-ai-sdk's prompt retrieve response
-    model is out of sync with the API (expects `prompt_config`, API returns
-    `prompt`).
     """
-    import httpx
-
     api_key = os.environ.get("ORQ_API_KEY")
     if not api_key:
         raise RuntimeError("ORQ_API_KEY is not set")
 
-    response = httpx.get(
-        f"https://api.orq.ai/v2/prompts/{prompt_id}",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    body = response.json()
-    text = _extract_system_message(body)
+    with Orq(api_key=api_key) as client:
+        response = client.prompts.retrieve(id=prompt_id, timeout_ms=30_000)
+
+    text = _extract_system_message(response.prompt)
     text = _convert_template_braces(text)
     logger.debug(f"Fetched prompt from orq.ai (id={prompt_id}, {len(text)} chars)")
     return text
