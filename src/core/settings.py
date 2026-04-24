@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     """
 
     # API Configuration
-    OPENAI_API_KEY: str = Field(..., description="OpenAI API key for accessing GPT models")
+    OPENAI_API_KEY: str = Field(default="", description="OpenAI API key for accessing GPT models")
 
     # orq.ai Configuration
     ORQ_API_BASE: str = Field(
