@@ -35,10 +35,11 @@ make evals-help
 
 ### 1. Install Dependencies
 
-Make sure you have the eval dependencies installed.
+Make sure you have the eval dependencies installed. `evaluatorq` is included in the `dev` group; the `eval` group adds heavier extras like `ragas`, `matplotlib`, and `seaborn`.
 
 ```bash
-uv sync --group eval
+uv sync               # includes evaluatorq (dev group)
+uv sync --group eval  # also adds ragas, matplotlib, seaborn, etc.
 ```
 
 ### 2. Set Up orq.ai

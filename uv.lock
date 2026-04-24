@@ -2955,6 +2955,7 @@ client = [
     { name = "python-dotenv" },
 ]
 dev = [
+    { name = "evaluatorq" },
     { name = "langgraph-cli", extra = ["inmem"] },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -3003,6 +3004,7 @@ client = [
     { name = "python-dotenv", specifier = "~=1.0.0" },
 ]
 dev = [
+    { name = "evaluatorq", specifier = ">=1.2.2,<2" },
     { name = "langgraph-cli", extras = ["inmem"] },
     { name = "mypy" },
     { name = "pre-commit" },

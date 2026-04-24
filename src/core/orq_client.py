@@ -4,8 +4,8 @@ Every module that talks to orq.ai via the SDK should go through this
 factory so the `ORQ_API_BASE` override is honored consistently across
 routes (raw HTTP in scripts, LLM router, OTEL exporter, SDK calls).
 
-The SDK prepends `/v2/...` to every path internally (see
-`orq_ai_sdk.agents.invoke_async` etc.), so the SDK `server_url` must be
+The SDK prepends `/v2/...` to every path internally (e.g.
+`orq_ai_sdk.agents.responses.create_async`), so the SDK `server_url` must be
 the host without the `/v2` suffix — whereas raw-HTTP callers want
 `settings.ORQ_API_BASE` including `/v2`. `_derive_server_url()` bridges
 the two conventions.
