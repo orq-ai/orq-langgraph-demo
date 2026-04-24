@@ -6,10 +6,8 @@ responds to those values.
 """
 
 import asyncio
-import sys
 import os
-
-import pytest
+import sys
 
 # Make evals/ importable
 _EVALS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../evals"))

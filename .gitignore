@@ -183,5 +183,5 @@ api_keys.txt
 # Ruff cache
 .ruff_cache/
 
-todo.md
-/plans/
+.todo.md
+./plans/
