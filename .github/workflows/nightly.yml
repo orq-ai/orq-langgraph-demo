@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --group eval
 
+      - name: Build SQLite database
+        run: uv run python scripts/structured_data_ingestion_pipeline.py
+
       - name: Run prompt A/B experiment
         id: experiment
         env:

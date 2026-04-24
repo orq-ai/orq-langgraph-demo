@@ -70,8 +70,13 @@ EVALUATORS = [
     {"name": "hallucination-check", "scorer": hallucination_scorer},
 ]
 
+# Only deterministic scorers — safe to gate CI without flaky LLM-judge noise.
+CI_EVALUATORS = [
+    {"name": "tool-accuracy", "scorer": tool_accuracy_scorer},
+]
 
-async def run(variants: list[str]) -> None:
+
+async def run(variants: list[str], strict: bool = False) -> None:
     print("Hybrid Data Agent — Evaluation Pipeline")
     print("=" * 50)
     print(f"Variants: {', '.join(variants)}")
@@ -103,20 +108,20 @@ async def run(variants: list[str]) -> None:
         name = "hybrid-data-agent-prompt-ab"
         description = f"A/B: variants {', '.join(variants)}"
 
+    evaluators = CI_EVALUATORS if strict else EVALUATORS
+    print(f"Evaluators: {', '.join(e['name'] for e in evaluators)}")
+    if strict:
+        print("Mode: strict (exits non-zero on tool-accuracy failure)")
     print("\nStarting evaluation...\n")
 
     await evaluatorq(
         name,
         data=data,
         jobs=jobs,
-        evaluators=EVALUATORS,
+        evaluators=evaluators,
         path=settings.ORQ_PROJECT_NAME,
         description=description,
-        # Don't abort on individual pass_=False rows. Local runs should
-        # surface failures in the Studio, not fail the make target on
-        # transient LLM-judge flakes. CI can re-enable this as a
-        # regression gate.
-        _exit_on_failure=False,
+        _exit_on_failure=strict,
     )
 
     print("\nEvaluation complete.")
@@ -132,6 +137,11 @@ def main() -> int:
         "--variants",
         default="A",
         help="Comma-separated prompt variants to run (default: 'A'). Use 'A,B' for A/B experiment.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero if any tool-accuracy check fails. Use in CI to gate PRs.",
     )
     args = parser.parse_args()
 
@@ -149,7 +159,7 @@ def main() -> int:
         return 1
 
     try:
-        asyncio.run(run(variants))
+        asyncio.run(run(variants, strict=args.strict))
         return 0
     except KeyboardInterrupt:
         print("\nEvaluation cancelled by user")
