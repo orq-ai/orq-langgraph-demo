@@ -107,7 +107,7 @@ hybrid-data-agent-managed
 
 Full execution tree visible in orq.ai Traces under `hybrid-data-agent-managed`.
 No Python code is involved beyond the thin invoker in `src/orq_agent.py`
-which just calls `client.agents.invoke_async(...)` on the orq-ai-sdk client.
+which calls `client.agents.responses.create_async(...)` on the orq-ai-sdk client.
 
 ---
 
