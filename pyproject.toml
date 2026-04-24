@@ -30,7 +30,7 @@ dependencies = [
     # Configuration & Validation
     "pydantic >=2.11.2,<3",
     "pydantic-settings >=2.6.1,<3",
-    "python-dotenv ~=1.0.0",
+    "python-dotenv~=1.2.2",
     # Observability
     "orq-ai-sdk>=4.7.5,<5",
     "opentelemetry-api",
@@ -67,7 +67,7 @@ eval = [
 
 client = [
     "pydantic >=2.11.2,<3",
-    "python-dotenv ~=1.0.0",
+    "python-dotenv~=1.2.2",
     "chainlit >=2.6.3",
 ]
 
