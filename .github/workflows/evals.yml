@@ -18,8 +18,12 @@ on:
 jobs:
   evals:
     runs-on: ubuntu-latest
-    # Skip forks — eval runs require secrets
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Skip forks and Dependabot — eval runs require secrets, and Dependabot
+    # workflow runs can't read Actions secrets (they use a separate store).
+    # Dep bumps are still validated by the unit-test job in ci.yml.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v4
 
