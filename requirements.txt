@@ -8,7 +8,7 @@ pypdf~=6.13.3
 # Configuration & Validation
 pydantic>=2.10.1
 pydantic-settings>=2.14.2
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 # Utilities
 tiktoken>=0.8.0
