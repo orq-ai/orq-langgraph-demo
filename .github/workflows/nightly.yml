@@ -5,8 +5,9 @@ name: Nightly Prompt A/B Experiment
 # review any drift in prompt variant performance over time.
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  # Scheduled run disabled for now. Re-enable by uncommenting.
+  # schedule:
+  #   - cron: "0 3 * * *"
   workflow_dispatch: # allow manual trigger from the Actions tab
 
 jobs:
