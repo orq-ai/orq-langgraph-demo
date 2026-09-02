@@ -3,7 +3,7 @@ chainlit>=2.0.0
 
 # Data Processing
 pandas~=2.2.3
-pypdf~=6.13.3
+pypdf>=6.13.3,<6.17.0
 
 # Configuration & Validation
 pydantic>=2.10.1
